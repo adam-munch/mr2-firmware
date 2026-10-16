@@ -1,0 +1,12 @@
+name: Update wideband Reference
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '45 0 * * *'
+
+jobs:
+  update-git:
+    uses: ./.github/workflows/update-submodule-reference.yaml
+    with:
+      submodule: firmware/controllers/can/wideband_firmware

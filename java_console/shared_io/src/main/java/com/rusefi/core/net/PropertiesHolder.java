@@ -1,0 +1,104 @@
+package com.rusefi.core.net;
+
+import com.devexperts.logging.Logging;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Properties;
+
+import static com.devexperts.logging.Logging.getLogging;
+
+public enum PropertiesHolder {
+    INSTANCE;
+
+    private static final Logging log = getLogging(PropertiesHolder.class);
+
+    private static final String IO_PROPERTIES = "/shared_io.properties";
+
+    // sad: we have failed to completely understand #6777, now we simply launch separate process instead
+    private volatile Properties properties;
+
+    public static String getProperty(String key, String defaultValue) {
+        return INSTANCE.getProperties().getProperty(key, defaultValue);
+    }
+
+    public static String getProperty(String key) {
+        return INSTANCE.getProperties().getProperty(key);
+    }
+
+    public Properties getProperties() {
+        if (properties == null) {
+            properties = getPropertiesForReal();
+        }
+        return properties;
+    }
+
+    private static Properties getPropertiesForReal() throws RuntimeException {
+        Properties props = new Properties();
+        try {
+            InputStream stream = ConnectionAndMeta.class.getResourceAsStream(IO_PROPERTIES);
+            if (stream == null) {
+                if (new File(".").getCanonicalPath().contains("!\\"))
+                    throw new IllegalArgumentException("Use folder names without exclamation marks at the end");
+                throw new NullPointerException("Error opening resource stream " + IO_PROPERTIES);
+            }
+            props.load(stream);
+            return props;
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public static String getBaseUrl() {
+        String propertyFileValue = INSTANCE.getProperties().getProperty("auto_update_root_url");
+        log.info("auto_update_root_url=" + propertyFileValue);
+        String result = System.getProperty("RE_UPDATE_URL", propertyFileValue);
+        log.info("auto_update_root_url getProperty=" + propertyFileValue);
+        return result;
+    }
+
+    public static String getUpdateHelpUrl(String defaultUrl) {
+        return getUpdateHelpUrl(INSTANCE.getProperties(), defaultUrl);
+    }
+
+    static String getUpdateHelpUrl(Properties properties, String defaultUrl) {
+        return properties.getProperty("UPDATE_FW_HELP_URL", defaultUrl);
+    }
+
+    public static String getFirmwareRollbackRootUrl() {
+        return getFirmwareRollbackRootUrl(INSTANCE.getProperties());
+    }
+
+    static String getFirmwareRollbackRootUrl(Properties properties) {
+        String rollbackRoot = properties.getProperty("firmware_rollback_root_url");
+        return rollbackRoot == null || rollbackRoot.trim().isEmpty()
+            ? properties.getProperty("auto_update_root_url")
+            : rollbackRoot;
+    }
+
+    public static String getPinoutBaseUrl() {
+        String propertyFileValue = INSTANCE.getProperties().getProperty("pinout_base_url");
+        log.info("pinout_base_url=" + propertyFileValue);
+        return System.getProperty("RE_PINOUT_URL", propertyFileValue);
+    }
+
+    public static String getPinoutMetaName() {
+        String propertyFileValue = INSTANCE.getProperties().getProperty("pinout_meta_name", "boards_meta.yaml");
+        log.info("pinout_meta_name=" + propertyFileValue);
+        return System.getProperty("RE_PINOUT_META", propertyFileValue);
+    }
+
+    public static boolean getBoolean(String propertyName, Properties properties) {
+        return getBoolean(propertyName, properties, false);
+    }
+
+    public static boolean getBoolean(String propertyName, Properties properties, boolean defaultValue) {
+        String flag = properties.getProperty(propertyName);
+        if (flag == null) {
+            return defaultValue;
+        }
+        return Boolean.TRUE.toString().equalsIgnoreCase(flag);
+    }
+
+}

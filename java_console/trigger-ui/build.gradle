@@ -1,0 +1,19 @@
+
+
+apply from: dependenciesPath
+
+dependencies {
+    api project(':core_ui')
+    api project(':shared_ui')
+    api project(':models')
+    api project(':trigger-image')
+    api project(':autoupdate') // a mess of UI code reuse
+}
+
+shadowJar {
+  manifest {
+    attributes(
+      'Main-Class': 'com.rusefi.trigger.TriggerImage'
+    )
+  }
+}

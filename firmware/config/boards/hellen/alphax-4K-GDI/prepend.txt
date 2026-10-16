@@ -1,0 +1,37 @@
+#define MAIN_HELP_URL "https://rusefi.com/s/4k-gdi"
+
+
+
+
+#define ts_show_vbatt false
+#define ts_show_clt_iat_pullup false
+#define ts_show_egt false
+#define ts_show_etb_pins false
+#define ts_show_analog_divider false
+#define ts_show_spi false
+#define ts_show_can_pins false
+#define ts_show_tunerstudio_port true
+#define ts_show_can2 false
+#define ts_show_tps2 false
+#define ts_show_software_knock true
+#define ts_show_gdi true
+#define ts_show_gdi_low_level false
+#define ts_show_tps_sent true
+#define ts_show_check_engine true
+#define ts_show_InjectorFlowLinearizationTable true
+
+#define LUA_SCRIPT_SIZE 26000
+#define FLOW_LINEARIZATION_MASS_SIZE 16
+#define FLOW_LINEARIZATION_PRESSURE_SIZE 16
+
+
+#define ts_show_cylinder_5 false
+#define ts_show_cylinder_6 false
+#define ts_show_cylinder_7 false
+#define ts_show_cylinder_8 false
+#define ts_show_cylinder_9 false
+#define ts_show_cylinder_10 false
+#define ts_show_cylinder_11 false
+#define ts_show_cylinder_12 false
+
+#define CLT_IDLE_TABLE_RPM_SIZE 6

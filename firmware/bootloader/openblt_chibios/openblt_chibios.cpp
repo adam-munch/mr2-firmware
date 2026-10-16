@@ -1,0 +1,157 @@
+#include "pch.h"
+
+extern "C" {
+	#include "boot.h"
+	#include "flash.h"
+}
+
+void CpuInit() { }
+
+void TimerInit() { }
+void TimerReset() { }
+
+void TimerUpdate() { }
+
+blt_int32u TimerGet() {
+	return chTimeI2MS(chVTGetSystemTime());
+}
+
+void CpuMemCopy(blt_addr dest, blt_addr src, blt_int16u len)
+{
+	memcpy((void*)dest, (void*)src, len);
+}
+
+void CpuMemSet(blt_addr dest, blt_int8u value, blt_int16u len)
+{
+	memset((void*)dest, value, len);
+}
+
+/* See crt1.c for __cpu_init() */
+void __cpu_deinit(void) {
+#if CORTEX_MODEL == 7
+  SCB_DisableICache();
+  SCB_DisableDCache();
+#endif
+
+  /* Clear all MPU settings (guard pages etc), as they may immediately cause a
+   * fault after the jump to the user program, before it configures its own MPU. */
+  mpuDisable();
+  for (int i = 0; i < 8; i++) {
+    mpuConfigureRegion(i, 0, 0);
+  }
+  __DSB();
+  __ISB();
+}
+
+/** \brief Pointer to the user program's reset vector. */
+#define CPU_USER_PROGRAM_STARTADDR_PTR    ((blt_addr)(NvmGetUserProgBaseAddress() + 0x00000004))
+/** \brief Pointer to the user program's vector table. */
+#define CPU_USER_PROGRAM_VECTABLE_OFFSET  ((blt_int32u)NvmGetUserProgBaseAddress())
+
+void CpuStartUserProgram(void)
+{
+  void (*pProgResetHandler)(void);
+
+  /* check if a user program is present by verifying the checksum */
+  if (NvmVerifyChecksum() == BLT_FALSE)
+  {
+#if (BOOT_COM_DEFERRED_INIT_ENABLE > 0) && (BOOT_COM_ENABLE > 0)
+    /* bootloader will stay active so perform deferred initialization to make sure
+     * the communication interface that were not yet initialized are now initialized.
+     * this is needed to make sure firmware updates via these communication interfaces
+     * will be possible.
+     */
+    ComDeferredInit();
+#endif
+    /* not a valid user program so it cannot be started */
+    return;
+  }
+#if (BOOT_CPU_USER_PROGRAM_START_HOOK > 0)
+  /* invoke callback */
+  if (CpuUserProgramStartHook() == BLT_FALSE)
+  {
+  #if (BOOT_COM_DEFERRED_INIT_ENABLE > 0) && (BOOT_COM_ENABLE > 0)
+    /* bootloader will stay active so perform deferred initialization to make sure
+     * the communication interface that were not yet initialized are now initialized.
+     * this is needed to make sure firmware updates via these communication interfaces
+     * will be possible.
+     */
+    ComDeferredInit();
+  #endif
+    /* callback requests the user program to not be started */
+    return;
+  }
+#endif
+#if (BOOT_COM_ENABLE > 0)
+  /* release the communication interface */
+  ComFree();
+#endif
+#if (BOOT_COM_NET_ENABLE > 0)
+#if defined(STM32F4XX) || defined(STM32F7XX)
+  /* stop the Ethernet MAC to prevent DMA from writing to bootloader memory
+   * after we jump to the firmware.
+   * Note: we do NOT put PHY in power-down mode because the firmware's MII
+   * operations will hang waiting for a non-responsive PHY.
+   * Instead, we manually stop MAC/DMA, reset the PHY, and reset the peripheral. */
+  ETH->MACCR = 0;
+  ETH->DMAOMR = 0;
+  ETH->DMAIER = 0;
+  ETH->DMASR = ETH->DMASR;
+  rccDisableETH();
+
+  /* Reset PHY via MII before jumping - ensure PHY is in clean state for firmware */
+  rccEnableETH(true);
+  /* Wait for any pending MII operation to complete (with timeout) */
+  {
+    volatile int mii_timeout = 1000000;
+    while ((ETH->MACMIIAR & ETH_MACMIIAR_MB) && mii_timeout--)
+      ;
+  }
+  /* PHY soft reset */
+  ETH->MACMIIDR = 0x8000; /* BMCR_RESET */
+  ETH->MACMIIAR = (0 << 11) | (0 << 6) | 0x0C | ETH_MACMIIAR_MW | ETH_MACMIIAR_MB;
+  {
+    volatile int mii_timeout = 1000000;
+    while ((ETH->MACMIIAR & ETH_MACMIIAR_MB) && mii_timeout--)
+      ;
+  }
+  rccDisableETH();
+
+  /* Full ETH peripheral reset to ensure clean state for firmware */
+  rccEnableETH(true);
+  rccResetETH();
+  rccDisableETH();
+#endif // STM32F4XX || STM32F7XX
+#endif //BOOT_COM_NET_ENABLE
+  /* reset the HAL */
+  chSysDisable();
+  /* reset the timer */
+  TimerReset();
+
+  /* Core deinitialization to jump into Prog in fresh state.*/
+  __cpu_deinit();
+
+  /* remap user program's vector table */
+  SCB->VTOR = CPU_USER_PROGRAM_VECTABLE_OFFSET & (blt_int32u)0x1FFFFF80;
+  /* set the address where the bootloader needs to jump to. this is the address of
+   * the 2nd entry in the user program's vector table. this address points to the
+   * user program's reset handler.
+   */
+  pProgResetHandler = (void(*)(void))(*((blt_addr *)CPU_USER_PROGRAM_STARTADDR_PTR));
+  /* The Cortex-M4 core has interrupts enabled out of reset. the bootloader
+   * explicitly disables these for security reasons. Enable them here again, so it does
+   * not have to be done by the user program.
+   */
+  /* start the user program by activating its reset interrupt service routine */
+  pProgResetHandler();
+#if (BOOT_COM_DEFERRED_INIT_ENABLE > 0) && (BOOT_COM_ENABLE > 0)
+  /* theoretically, the code never gets here because the user program should now be
+   * running and the previous function call should not return. In case it did return
+   * for whatever reason, make sure all communication interfaces are initialized so that
+   * firmware updates can be started.
+   */
+  ComDeferredInit();
+#endif
+} /*** end of CpuStartUserProgram ***/
+
+

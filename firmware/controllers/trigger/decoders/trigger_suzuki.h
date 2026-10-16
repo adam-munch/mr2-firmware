@@ -1,0 +1,15 @@
+/*
+ * trigger_suzuki.h
+ *
+ * @date Oct 4, 2021
+ * @author Andrey Belomutskiy, (c) 2012-2021
+ */
+
+#pragma once
+
+class TriggerWaveform;
+
+void initializeSuzukiG13B(TriggerWaveform *s);
+void initializeSuzukiG16B(TriggerWaveform *s);
+void initializeSuzukiK6A(TriggerWaveform *s);
+void configureSuzuki36_2_2(TriggerWaveform *s);

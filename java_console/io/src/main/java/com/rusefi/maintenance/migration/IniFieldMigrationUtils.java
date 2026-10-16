@@ -1,0 +1,74 @@
+package com.rusefi.maintenance.migration;
+
+import com.devexperts.logging.Logging;
+import com.opensr5.ini.field.ArrayIniField;
+import com.rusefi.CompatibilitySet;
+import com.rusefi.config.FieldType;
+import com.rusefi.tune.xml.Constant;
+
+import org.jetbrains.annotations.Nullable;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.Objects;
+import java.util.Set;
+
+import static com.devexperts.logging.Logging.getLogging;
+
+public class IniFieldMigrationUtils {
+    private static final Logging log = getLogging(IniFieldMigrationUtils.class);
+
+    public static boolean checkIfTypeCanBeMigrated(final FieldType prevType, final FieldType newType) {
+        if (Objects.equals(prevType, newType)) {
+            return true;
+        } else if (prevType.isNumeric() && newType.isNumeric()) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    //ATTENTION! please add only lower-cased value in the list below:
+    private final static List<Set<String>> UNITS_SYNONYMS = Arrays.asList(
+        CompatibilitySet.of("%", "percent"),
+        CompatibilitySet.of("deg c", "c"),
+        CompatibilitySet.of("voltage", "volts")
+    );
+
+    public static boolean checkIfUnitsCanBeMigrated(@Nullable final String prevUnits, @Nullable final String newUnits) {
+        if ((prevUnits == null) || prevUnits.isEmpty()) {
+            return true;
+        } else if (newUnits != null) {
+            if (isUnitsExpression(prevUnits) || isUnitsExpression(newUnits)) {
+                // TS `{...}` units expressions (e.g. {bitStringValue(pressureUnitsLabels, useMetricOnInterface)})
+                // reach us unevaluated, so the same physical unit can be spelled as a literal in one ini and as
+                // an expression in the other, or as two different expressions. A raw-string mismatch here says
+                // nothing about the physical unit, and refusing migration silently replaces the user's tuned
+                // value with the new default - so expression units never block migration.
+                return true;
+            }
+            final String lcPrevUnits = prevUnits.toLowerCase();
+            final String lcNewUnits = newUnits.toLowerCase();
+            if (lcPrevUnits.equals(lcNewUnits)) {
+                return true;
+            } else {
+                for (final Set<String> synonyms: UNITS_SYNONYMS) {
+                    if (synonyms.contains(lcPrevUnits) && synonyms.contains(lcNewUnits)) {
+                        return true;
+                    }
+                };
+            }
+        }
+        return false;
+    }
+
+    private static boolean isUnitsExpression(final String units) {
+        return units.trim().startsWith("{");
+    }
+
+    //TODO: reuse on BattLagCorrExtensionMigrator.java
+	public static Constant generateConstant(final ArrayIniField iniField, final String value) {
+		return new Constant(iniField.getName(), iniField.getUnits(), value, iniField.getDigits(),
+				String.valueOf(iniField.getRows()), String.valueOf(iniField.getCols()));
+	}
+}

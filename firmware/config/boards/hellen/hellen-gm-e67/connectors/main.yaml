@@ -1,0 +1,93 @@
+pins:
+
+#
+# some AUX apparently?
+#
+  - pin: J4_4_broken
+    # H144_OUT_PWM5
+    id: C9
+    class: outputs
+    ts_name: J4_4 Wastegate Solenoid
+    function: Wastegate Solenoid
+
+  - pin: J4_4_broken2
+    # H144_OUT_IO1
+    id: D3
+    class: outputs
+    ts_name: J4_5 Error Light
+    function: Error Light Output
+
+  - pin: J7_1
+    # H_SPI3_MOSI
+    id: C12
+    class: outputs
+    ts_name: J7_1 AUX
+    function: J7_1 AUX
+
+  - pin: J7_2
+    # H_SPI3_MISO
+    id: C11
+    class: outputs
+    ts_name: J7_2 AUX
+    function: J7_2 AUX
+
+  - pin: J7_3
+    # H_SPI3_SCK
+    id: C10
+    class: outputs
+    ts_name: J7_3 AUX
+    function: J7_3 AUX
+
+  - pin: J7_4
+    # H_SPI3_CS
+    id: A15
+    class: outputs
+    ts_name: J7_4 AUX
+    function: J7_4 AUX
+
+  - pin: J7_5
+    # H144_UART2_TX
+    id: D5
+    class: outputs
+    ts_name: J7_5 AUX
+    function: J7_5 AUX
+
+  - pin: J7_6
+    # H144_UART2_RX
+    id: D6
+    class: outputs
+    ts_name: J7_6 AUX
+    function: J7_6 AUX
+
+  - pin: J7_7
+    # H144_UART1_RX
+    id: E0
+    class: outputs
+    ts_name: J7_7 AUX
+    function: J7_7 AUX
+
+  - pin: J7_8
+    # H144_UART1_TX
+    id: E1
+    class: outputs
+    ts_name: J7_8 AUX
+    function: J7_8 AUX
+
+
+info:
+  cid: GM-E67
+  title: Hellen GM E67
+  name: Hellen GM E67
+  board_url: https://rusefi.com/s/gm-e67
+  directory: hellen/hellen-gm-e67
+  image:
+    file: main.jpg
+  pins:
+    - pin: U12
+      x: 1119
+      y: 424
+
+    - pin: U19
+      x: 1095
+      y: 234
+

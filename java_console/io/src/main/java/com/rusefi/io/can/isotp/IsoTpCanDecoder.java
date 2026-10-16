@@ -1,0 +1,150 @@
+package com.rusefi.io.can.isotp;
+
+import com.devexperts.logging.Logging;
+import com.rusefi.util.HexBinary;
+
+import java.util.Arrays;
+
+import static com.rusefi.util.HexBinary.printHexBinary;
+
+/**
+ * ISO 15765-2 or ISO-TP (Transport Layer) CAN multi-frame decoder state
+ *
+ * @see IsoTpConnector
+ */
+public abstract class IsoTpCanDecoder {
+    public static final byte[] FLOW_CONTROL = {0x30, 0, 0, 0, 0, 0, 0, 0};
+    private static final Logging log = Logging.getLogging(IsoTpCanDecoder.class);
+
+    static {
+        log.configureDebugEnabled(false);
+    }
+
+    private final static int ISO_TP_FRAME_FLOW_CONTROL = 3;
+
+    private final static int FC_ContinueToSend = 0;
+    private final int isoHeaderByteIndex;
+
+    private int waitingForNumBytes = 0;
+    private int waitingForFrameIndex = 0;
+    private boolean isComplete;
+
+    public IsoTpCanDecoder() {
+        this(0);
+    }
+
+    public IsoTpCanDecoder(int isoHeaderByteIndex) {
+        this.isoHeaderByteIndex = isoHeaderByteIndex;
+    }
+
+    @Deprecated // warning: PCAN driver is an example of larger data buffer
+    public byte[] decodePacket(byte[] data) {
+        return decodePacket(data, data.length);
+    }
+
+   public byte[] decodePacket(byte[] data, int dataSize) {
+        if (dataSize > data.length || dataSize <= isoHeaderByteIndex) {
+            return malformedFrame("Invalid ISO-TP frame length: " + dataSize);
+        }
+//        log.info("Decoding " + printHexBinary(data));
+        int frameType = (data[isoHeaderByteIndex] >> 4) & 0xf;
+        int numBytesAvailable;
+        int frameIdx;
+        int dataOffset;
+        switch (frameType) {
+            case IsoTpConstants.ISO_TP_FRAME_SINGLE:
+                numBytesAvailable = data[isoHeaderByteIndex] & 0xf;
+                dataOffset = isoHeaderByteIndex + 1;
+                if (numBytesAvailable > Math.min(7 - isoHeaderByteIndex, dataSize - dataOffset)) {
+                    return malformedFrame("ISO-TP payload exceeds frame length");
+                }
+                this.waitingForNumBytes = 0;
+                if (log.debugEnabled())
+                    log.debug("ISO_TP_FRAME_SINGLE " + numBytesAvailable);
+                setComplete(true);
+                break;
+            case IsoTpConstants.ISO_TP_FRAME_FIRST:
+                if (dataSize < isoHeaderByteIndex + 2) {
+                    return malformedFrame("Truncated ISO-TP first-frame header");
+                }
+                this.waitingForNumBytes = ((data[isoHeaderByteIndex] & 0xf) << 8) | (data[isoHeaderByteIndex + 1] & 0xff);
+                setComplete(false);
+                if (log.debugEnabled())
+                    log.debug("Total expected: " + waitingForNumBytes);
+                this.waitingForFrameIndex = 1;
+                numBytesAvailable = Math.min(this.waitingForNumBytes, dataSize - 2 - isoHeaderByteIndex);
+                waitingForNumBytes -= numBytesAvailable;
+                dataOffset = isoHeaderByteIndex + 2;
+                onTpFirstFrame();
+                break;
+            case IsoTpConstants.ISO_TP_FRAME_CONSECUTIVE:
+                frameIdx = data[isoHeaderByteIndex] & 0xf;
+                if (this.waitingForNumBytes <= 0) {
+                    if (log.debugEnabled())
+                        log.debug("Ignoring ISO-TP consecutive frame while no message is active: frameIdx=" + frameIdx);
+                    onTpDecodeError("Unexpected ISO-TP consecutive frame: index=" + frameIdx);
+                    reset();
+                    return new byte[0];
+                }
+                if (this.waitingForFrameIndex != frameIdx) {
+                    String message = "ISO-TP sequence error: expected=" + waitingForFrameIndex
+                        + " received=" + frameIdx + " bytesRemaining=" + waitingForNumBytes;
+                    log.warn(message);
+                    onTpDecodeError(message);
+                    reset();
+                    return new byte[0];
+                }
+                this.waitingForFrameIndex = (this.waitingForFrameIndex + 1) & 0xf;
+                numBytesAvailable = Math.min(this.waitingForNumBytes, dataSize - 1 - isoHeaderByteIndex);
+                dataOffset = isoHeaderByteIndex + 1;
+                waitingForNumBytes -= numBytesAvailable;
+                if (log.debugEnabled())
+                    log.debug("ISO_TP_FRAME_CONSECUTIVE Got " + numBytesAvailable + " byte(s), still expecting: " + waitingForNumBytes + " byte(s)");
+                setComplete(waitingForNumBytes == 0);
+                break;
+            case ISO_TP_FRAME_FLOW_CONTROL:
+                if (dataSize < isoHeaderByteIndex + 3) {
+                    return malformedFrame("Truncated ISO-TP flow-control header");
+                }
+                int flowStatus = data[isoHeaderByteIndex] & 0xf;
+                int blockSize = data[isoHeaderByteIndex + 1];
+                int separationTime = data[isoHeaderByteIndex + 2];
+                if (flowStatus == FC_ContinueToSend && blockSize == 0 && separationTime == 0)
+                    return new byte[0];
+                throw new IllegalStateException("ISO_TP_FRAME_FLOW_CONTROL: should we just ignore the FC frame? " + flowStatus + " " + blockSize + " " + separationTime);
+            default:
+                throw new IllegalStateException("Unknown frame type");
+        }
+        byte[] bytes = Arrays.copyOfRange(data, dataOffset, dataOffset + numBytesAvailable);
+        if (log.debugEnabled())
+            log.debug(numBytesAvailable + " bytes(s) arrived in this packet: " + HexBinary.printByteArray(bytes));
+        return bytes;
+    }
+
+    protected abstract void onTpFirstFrame();
+
+    private byte[] malformedFrame(String message) {
+        reset();
+        log.warn(message);
+        onTpDecodeError(message);
+        return new byte[0];
+    }
+
+    /** Override to fail the connection instead of discarding malformed data. */
+    protected void onTpDecodeError(String message) {
+    }
+
+    public void setComplete(boolean isComplete) {
+        this.isComplete = isComplete;
+    }
+
+    public boolean isComplete() {
+        return isComplete;
+    }
+
+    private void reset() {
+        waitingForNumBytes = 0;
+        waitingForFrameIndex = 0;
+        setComplete(false);
+    }
+}

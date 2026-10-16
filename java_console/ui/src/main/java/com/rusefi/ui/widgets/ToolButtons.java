@@ -1,0 +1,28 @@
+package com.rusefi.ui.widgets;
+
+import com.rusefi.core.ui.AutoupdateUtil;
+import com.rusefi.maintenance.ExecHelper;
+
+import javax.swing.*;
+import java.awt.*;
+import java.io.IOException;
+
+public class ToolButtons {
+    public static Component createShowDeviceManagerButton() {
+        JButton showDeviceManager = new JButton(AutoupdateUtil.loadIcon("DeviceManager.png"));
+        showDeviceManager.setMargin(new Insets(0, 0, 0, 0));
+        showDeviceManager.setToolTipText("Show Device Manager");
+        showDeviceManager.addActionListener(event -> {
+            showDeviceManager();
+        });
+        return showDeviceManager;
+    }
+
+    public static void showDeviceManager() {
+        try {
+            Runtime.getRuntime().exec(ExecHelper.getBatchCommand("devmgmt.msc"));
+        } catch (IOException ex) {
+            System.err.println("Could not open Device Manager (Windows-only): " + ex.getMessage());
+        }
+    }
+}

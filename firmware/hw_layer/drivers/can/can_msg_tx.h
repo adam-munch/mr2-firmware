@@ -1,0 +1,204 @@
+/**
+ * @file	can_msg_tx.h
+ *
+ * CAN message transmission
+ *
+ * @date Mar 13, 2020
+ * @author Matthew Kennedy, (c) 2012-2020
+ */
+
+#pragma once
+
+#include <cstdint>
+#include <cstddef>
+
+#include "can_category.h"
+#include "can.h"
+
+// A CAN frame is only eight payload bytes, but the HAL frame layout differs
+// between bxCAN and FDCAN.  Keep the complete native frame in each queue slot.
+// The shared worker queues a whole periodic burst before it can send it:
+// verbose (12) + QC (8) + console announcement (1) + wideband (1) = 22.
+// Leave room for Lua/ISO-TP too. A 16-frame queue drops the announcement.
+#define CAN_TX_QUEUE_CAPACITY 32
+
+#if EFI_SIMULATOR || EFI_UNIT_TEST
+#include "fifo_buffer.h"
+extern fifo_buffer<CANTxFrame, TEST_CAN_BUFFER_SIZE> txCanBuffer;
+#endif // EFI_SIMULATOR
+
+// sometimes we want to prohibit default bus index altogether
+#ifndef CAN_TX_WITH_DEFAULT_BUS
+#define CAN_TX_WITH_DEFAULT_BUS TRUE
+#endif
+
+#define DEFAULT_BUS_INDEX 0
+
+/**
+ * Represent a message to be transmitted over CAN.
+ *
+ * Usage:
+ *   * Create an instance of CanTxMessage
+ *   * Set any data you'd like to transmit either using the subscript operator to directly access bytes, or any of the helper functions.
+ *   * Upon destruction, the message is queued for transmission by its bus's worker.
+ */
+class CanTxMessage
+{
+public:
+	/**
+	 * Create a new CAN message, with the specified extended ID.
+	 */
+	explicit CanTxMessage(CanCategory category, uint32_t eid, uint8_t dlc
+#if CAN_TX_WITH_DEFAULT_BUS
+	= 8
+#endif
+	, size_t bus
+#if CAN_TX_WITH_DEFAULT_BUS
+	 = DEFAULT_BUS_INDEX
+#endif
+	 , bool isExtended = false);
+
+	/**
+	 * Queue the message when it goes out of scope, unless it was already submitted.
+	 */
+	~CanTxMessage();
+
+	// Copy the frame into its bus's queue without waiting for space.
+	// Return false if it cannot be queued or was already submitted.
+	bool submit();
+	// Queue the frame and wait for the worker's result. Success means the CAN
+	// controller accepted the frame, not that another node acknowledged it.
+	msg_t submitAndWait(sysinterval_t timeout);
+
+    CanCategory category;
+
+#if EFI_CAN_SUPPORT || EFI_UNIT_TEST
+	/**
+	 * Set the CAN controller used to transmit on this bus.
+	 */
+	static void setDevice(size_t idx, CANDriver* device);
+	// Discard queued frames and tell waiting senders that the bus was reset.
+	static void stopBus(size_t idx);
+	/**
+	 * Stop accepting new frames on this bus and discard its queued frames.
+	 * Submissions fail without a configuration error until setDevice restores it.
+	 */
+	static void removeDevice(size_t idx);
+	// Handle one bus without waiting for a hardware mailbox. False means no
+	// completed/discarded frame, including a retryable full mailbox.
+	static bool serviceOne(size_t idx);
+	// Keep handling frames until serviceOne reports no more work.
+	static void service(size_t idx);
+	// Shared TX workers wait here after a no-progress round. New work wakes
+	// them immediately; a short timeout lets them revisit retry deadlines.
+	static msg_t waitForWork(sysinterval_t timeout);
+	static int getQueueDropCount(size_t idx);
+#if EFI_UNIT_TEST
+	// Let host tests run the worker while a sender waits. Firmware uses the
+	// operating system to wake the worker and notify the waiting sender.
+	static void setWaitHookForUnitTest(void (*hook)(size_t));
+	static void setRescheduleHookForUnitTest(void (*hook)());
+#endif
+#endif // EFI_CAN_SUPPORT || EFI_UNIT_TEST
+
+	size_t busIndex = 0;
+
+	/**
+	 * @brief Read & write the raw underlying 8-byte buffer.
+	 */
+	uint8_t& operator[](size_t);
+
+	/**
+	 * @brief Write a 16-bit short value to the buffer. Note: this writes in Intel little endian byte order.
+	 */
+	void setShortValue(uint16_t value, size_t offset);
+
+	/**
+	 * @brief Write a 32-bit int value to the buffer. Note: this writes in Intel little endian byte order.
+	 */
+	void setIntValueLsb(uint32_t value, size_t offset);
+
+	/**
+	 Same as above but big endian Motorola
+	 * for instance DBC 8|16@0
+	 */
+	void setShortValueMsb(uint16_t value, size_t offset);
+
+	/**
+	 * @brief Set a single bit in the transmit buffer.  Useful for single-bit flags.
+	 */
+	void setBit(size_t byteIdx, size_t bitIdx);
+
+	void setDlc(uint8_t dlc);
+
+	void setBus(size_t bus);
+
+#if HAS_CAN_FRAME
+	const CANTxFrame *getFrame() const {
+		return &m_frame;
+	}
+
+    void setArray(const uint8_t *data, size_t len) {
+        for (size_t i = 0; i < std::min(len, sizeof(m_frame.data8)); i++) {
+            m_frame.data8[i] = data[i];
+        }
+    }
+
+    template<size_t N>
+    void setArray(const uint8_t (&data)[N]) {
+        setArray(data, N);
+    }
+
+#endif // HAL_USE_CAN || EFI_UNIT_TEST
+
+protected:
+#if HAS_CAN_FRAME
+	CANTxFrame m_frame;
+#endif // HAL_USE_CAN || EFI_UNIT_TEST
+
+private:
+#if EFI_CAN_SUPPORT || EFI_UNIT_TEST
+	static CANDriver* s_devices[EFI_CAN_BUS_COUNT];
+#endif // EFI_CAN_SUPPORT || EFI_UNIT_TEST
+	bool m_submitted = false;
+};
+
+/**
+ * A CAN message based on a type, removing the need for manually flipping bits/bytes.
+ */
+template <typename TData>
+class CanTxTyped final : public CanTxMessage
+{
+#if EFI_CAN_SUPPORT
+	static_assert(sizeof(TData) <= sizeof(CANTxFrame::data8));
+#endif // EFI_CAN_SUPPORT
+
+public:
+	explicit CanTxTyped(CanCategory p_category, uint32_t p_id, bool p_isExtended, /*bus index */size_t p_canChannel) : CanTxMessage(p_category, p_id, sizeof(TData), p_canChannel, p_isExtended) { }
+
+#if HAS_CAN_FRAME
+	/**
+	 * Access members of the templated type.
+	 *
+	 * So you can do:
+	 * CanTxTyped<MyType> d;
+	 * d->memberOfMyType = 23;
+	 */
+	TData* operator->() {
+		return reinterpret_cast<TData*>(&m_frame.data8);
+	}
+
+	TData& get() {
+		return *reinterpret_cast<TData*>(&m_frame.data8);
+	}
+#endif // HAS_CAN_FRAME
+};
+
+template <typename TData>
+void transmitStruct(CanCategory category, uint32_t id, bool isExtended, int p_canChannel)
+{
+	CanTxTyped<TData> frame(category, id, isExtended, p_canChannel);
+	// Destruction of an instance of CanTxMessage will transmit the message over the wire.
+	// see CanTxMessage::~CanTxMessage()
+	populateFrame(frame.get());
+}

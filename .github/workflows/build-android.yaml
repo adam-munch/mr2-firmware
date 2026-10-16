@@ -1,0 +1,63 @@
+name: Android
+
+#on: [push,pull_request]
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Checkout Submodules Without ChibiOS
+        run: |
+          misc/git_scripts/common_submodule_init_without_chibios.sh
+
+      - uses: ./.github/actions/setup-java
+
+      - name: Install Tools
+        run: |
+          sudo bash misc/actions/add-ubuntu-latest-apt-mirrors.sh
+          sudo apt-get install mtools
+
+      - name: Test Java Compiler
+        run: javac -version
+
+      - name: Print GCC version
+        working-directory: .
+        run: gcc -v
+
+      - name: Build Android
+        env:
+          RUSEFI_ANDROID_KEYPASS: ${{ secrets.RUSEFI_ANDROID_KEYPASS }}
+        working-directory: ./android
+        run: |
+          if [ "${{github.repository}}" == "rusefi/rusefi" && "${{github.event_name}}" == "push" ]; then
+            bash ./gradlew build
+          else
+            bash ./gradlew bundleDebug test
+          fi
+
+      - name: Upload APK - release
+        if: ${{ github.event_name == 'push' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: rusEFI-release
+          path: ./android/app/build/outputs/apk/release/rusEFI-release.apk
+
+      - name: Upload APK - unsigned
+        if: ${{ github.event_name != 'push' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: rusEFI-release-unsigned
+          path: ./android/app/build/outputs/bundle/debug/rusEFI-debug.aab
+
+      - name: Install Tools
+        run: sudo apt-get install sshpass
+
+      - name: Upload rusEFI Android application
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+        working-directory: .
+        run: java_console/upload_file.sh ${{ secrets.RUSEFI_SSH_USER }} ${{ secrets.RUSEFI_SSH_PASS }} ${{ secrets.RUSEFI_SSH_SERVER }} build_server android/app/build/outputs/apk/release/rusEFI-release.apk

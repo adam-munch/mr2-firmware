@@ -1,0 +1,403 @@
+##############################################################################
+# Build global options
+# NOTE: Can be overridden externally.
+#
+
+#
+# As of Sep 2019, this is known to compile on Linux
+# in my case I had to
+# sudo apt-get install gcc-multilib g++-multilib
+#
+# todo: automatically execute that command same as we automatically fetch submodules?
+#
+
+
+CHIBIOS = ../firmware/ChibiOS
+CHIBIOS_CONTRIB = ../firmware/ChibiOS-Contrib
+RULESPATH = $(CHIBIOS)/os/common/startup/SIMIA32/compilers/GCC
+
+US_TO_NT_MULTIPLIER = 100
+
+PROJECT_CPU=simulator
+
+# OS is a windows-specific environment variable
+ifneq ($(OS),Windows_NT)
+  OS = $(shell uname)
+endif
+$(info OS is [${OS}])
+
+# Cygwin reports as CYGWIN_NT-* from uname but is still Windows underneath.
+# Detect it so that Windows-specific workarounds (e.g. disabling
+# CH_DBG_SYSTEM_STATE_CHECK) apply on Cygwin builds too.
+IS_CYGWIN = $(if $(findstring CYGWIN,$(OS)),yes,no)
+
+# Windows flag: true for both native Windows_NT and Cygwin.
+ifeq ($(OS),Windows_NT)
+  IS_WIN = yes
+else ifeq ($(IS_CYGWIN),yes)
+  IS_WIN = yes
+else
+  IS_WIN = no
+endif
+
+include ../firmware/rusefi.mk
+include ../firmware/rusefi_rules.mk
+-include ${BOARD_DIR}/firmware/firmware.mk
+# TS page guard flags: extract definitions from board prepend.txt so the
+# simulator build agrees with the generated .ini on which pages are active.
+TS_PAGE_GUARD_FLAGS = EFI_LTFT_CONTROL|EFI_LUA
+TS_PAGE_GUARD_DEFS := $(shell sed -nE 's/^#define[[:space:]]+($(TS_PAGE_GUARD_FLAGS))[[:space:]]+(TRUE|FALSE)[[:space:]]*$$/-D\1=\2/p' $(BOARD_DIR)/prepend.txt $(BOARD_DIR)/prepend_$(SHORT_BOARD_NAME).txt 2>/dev/null)
+DDEFS += $(TS_PAGE_GUARD_DEFS)
+
+# Configure precompiled header
+PCH_DIR = $(PROJECT_DIR)/pch
+PCHSRC = $(PCH_DIR)/pch.h
+
+# used by USE_SMART_BUILD
+CONFDIR = .
+
+# SANITIZE=yes enables AddressSanitizer (ASan) which is incompatible with Valgrind.
+# If you want to run Valgrind, you must use SANITIZE=no.
+ifeq ($(IS_WIN),yes)
+  SANITIZE = no
+else
+  SANITIZE = yes
+endif
+
+ifeq ($(SIMULATOR_DEBUG_LEVEL_OPT),)
+# If you would like to debug the simulator, swap which of these lines is commented. It's commented because debug info causes a 10-15x increase in binary size.
+  SIMULATOR_DEBUG_LEVEL_OPT = -O0 -g
+endif
+
+# Compiler options here.
+ifeq ($(USE_OPT),)
+  USE_OPT = -Wall -Wno-error=implicit-fallthrough -Wno-error=write-strings -Wno-error=strict-aliasing -Werror=nonnull
+  USE_OPT += -D US_TO_NT_MULTIPLIER=$(US_TO_NT_MULTIPLIER)
+
+  ifeq ($(IS_WIN),yes)
+    USE_OPT += -DEFI_SIM_IS_WINDOWS=1 -DIS_WINDOWS_COMPILER=1
+  else
+    USE_OPT += -m32 -DEFI_SIM_IS_WINDOWS=0 -DIS_WINDOWS_COMPILER=0
+  endif
+endif
+
+# Pretend we are all different hardware so that all canned engine configs are included
+# [CannedTunes]
+USE_OPT += -DHW_HELLEN_HYUNDAI=1
+USE_OPT += -DHW_HELLEN_NISSAN=1
+USE_OPT += -DHW_HELLEN_NB1=1
+USE_OPT += -DHW_HELLEN_NB2=1
+USE_OPT += -DHW_HELLEN=1
+USE_OPT += -DHW_PROTEUS=1
+USE_OPT += -DHW_MICRO_RUSEFI=1
+
+USE_OPT += -DEFI_LUA_LOOKUP=1
+
+# See explanation in main firmware Makefile for these three defines
+USE_OPT += $(SIMULATOR_DEBUG_LEVEL_OPT) $(RUSEFI_OPT) -DEFI_UNIT_TEST=0 -DEFI_PROD_CODE=0 -DEFI_SIMULATOR=1
+
+# Enable address sanitizer, but not on Windows since x86_64-w64-mingw32-g++ doesn't support it.
+ifeq ($(SANITIZE),yes)
+  USE_OPT += -fsanitize=address
+endif
+
+# C specific options here (added to USE_OPT).
+ifeq ($(USE_COPT),)
+  USE_COPT = -std=gnu17
+endif
+
+# C++ specific options here (added to USE_OPT).
+ifeq ($(USE_CPPOPT),)
+  USE_CPPOPT = -std=c++2a -Wno-register -fno-rtti
+endif
+
+USE_CPPOPT += $(RUSEFI_CPPOPT)
+
+# Enable this if you want the linker to remove unused code and data.
+ifeq ($(USE_LINK_GC),)
+  USE_LINK_GC = yes
+endif
+
+# Linker extra options here.
+ifeq ($(USE_LDOPT),)
+  USE_LDOPT =
+endif
+
+# Enable this if you want link time optimizations (LTO)
+ifeq ($(USE_LTO),)
+  USE_LTO = no
+endif
+
+# Enable this if you want to see the full log while compiling.
+ifeq ($(USE_VERBOSE_COMPILE),)
+  USE_VERBOSE_COMPILE = no
+endif
+
+# If enabled, this option makes the build process faster by not compiling
+# modules not used in the current configuration.
+ifeq ($(USE_SMART_BUILD),)
+  USE_SMART_BUILD = no
+endif
+
+#
+# Build global options
+##############################################################################
+
+##############################################################################
+# Architecture or project specific options
+#
+
+#
+# Architecture or project specific options
+##############################################################################
+
+##############################################################################
+# Project, sources and paths
+#
+
+# Define project name here
+ifeq ($(IS_WIN),yes)
+  PROJECT = rusefi_simulator.exe
+else
+  PROJECT = rusefi_simulator
+endif
+PROJECT_DIR = ../firmware
+
+# Imported source files and paths
+
+include $(PROJECT_DIR)/common_libfirmware.mk
+
+# Licensing files.
+include $(CHIBIOS)/os/license/license.mk
+# Startup files.
+# HAL-OSAL files (optional).
+include $(CHIBIOS)/os/hal/hal.mk
+include $(CHIBIOS)/os/hal/boards/simulator/board.mk
+include $(CHIBIOS)/os/hal/osal/rt-nil/osal.mk
+# RTOS files (optional).
+include $(CHIBIOS)/os/rt/rt.mk
+include $(CHIBIOS)/os/common/ports/SIMIA32/compilers/GCC/port.mk
+# Other files (optional).
+include $(CHIBIOS)/os/hal/lib/streams/streams.mk
+#include $(CHIBIOS)/os/various/cpp_wrappers/chcpp.mk
+
+ifeq ($(IS_WIN),yes)
+  include ${CHIBIOS}/os/hal/ports/simulator/win32/platform.mk
+else
+  include ${CHIBIOS}/os/hal/ports/simulator/posix/platform.mk
+endif
+
+include $(PROJECT_DIR)/console/binary/tunerstudio.mk
+include $(PROJECT_DIR)/console/console.mk
+include $(PROJECT_DIR)/common.mk
+include $(PROJECT_DIR)/controllers/modules/modules.mk
+# Mass storage include provides getStorageImage()/getStorageImageSize() used by TS FS_IMAGE pages
+include $(PROJECT_DIR)/hw_layer/mass_storage/mass_storage.mk
+
+ifneq ($(BOARD_DIR),)
+  # used by custom board custom live data
+  INCDIR += $(BOARD_DIR)/firmware
+  ifneq ("$(wildcard $(BOARD_DIR)/board_common.mk)","")
+    # part common between PROD, simulator and unit tests
+    include $(BOARD_DIR)/board_common.mk
+  endif
+endif
+
+# SCSI and uzlib sources required by compressed_block_device.cpp for decompressing
+# the embedded INI image (TS FS_IMAGE_DATA page support)
+# C sources that can be compiled in ARM or THUMB mode depending on the global
+# setting.
+CSRC =  $(ALLCSRC) \
+  $(RUSEFI_LIB_C) \
+  $(PROJECT_DIR)/ChibiOS-Contrib/os/various/lib_scsi.c \
+  $(PROJECT_DIR)/ext/uzlib/src/tinflate.c \
+  $(PROJECT_DIR)/ext/uzlib/src/tinfgzip.c \
+  $(PROJECT_DIR)/ext/uzlib/src/adler32.c \
+  $(PROJECT_DIR)/ext/uzlib/src/crc32.c
+
+
+# C++ sources that can be compiled in ARM or THUMB mode depending on the global
+# setting.
+CPPSRC = $(ALLCPPSRC) \
+  $(BOARDCPPSRC) \
+  $(CHIBIOS)/os/various/cpp_wrappers/ch.cpp \
+  $(HW_LAYER_DRIVERS_CPP) \
+  $(HW_LAYER_DRIVERS_CORE_CPP) \
+  $(CONSOLE_SRC_CPP) \
+  $(DEV_SRC_CPP) \
+  simulator/rusEfiFunctionalTest.cpp \
+  simulator/can/hal_can_lld.cpp \
+  simulator/framework.cpp \
+  simulator/system/signal_executor_sleep.cpp \
+  simulator/boards.cpp \
+  $(TEST_SRC_CPP) \
+  $(MODULES_CPPSRC) \
+  $(RUSEFI_LIB_CPP) \
+  flash_storage.cpp \
+  main.cpp
+
+# Remove mass_storage_device.cpp from ALLCPPSRC since it requires USB MSD HAL
+# (not available in simulator). We only need getStorageImage() for TS protocol.
+CPPSRC := $(filter-out $(PROJECT_DIR)/hw_layer/mass_storage/mass_storage_device.cpp,$(CPPSRC))
+
+
+# List ASM source files here
+ASMSRC = $(PORTASM)
+
+# mass_storage and uzlib headers needed for getStorageImage() and compressed INI decompression
+INCDIR += . \
+  $(PCH_DIR) \
+  $(ALLINC) \
+  $(MODULES_INC) \
+  $(CHIBIOS)/os/various/cpp_wrappers \
+  $(PROJECT_DIR)/hw_layer/drivers/can \
+  ${CHIBIOS}/os/various \
+  $(PROJECT_DIR)/development/hw_layer \
+  $(CHIBIOS)/os/hal/lib/streams \
+  $(RUSEFI_LIB_INC) \
+  $(PROJECT_DIR)/hw_layer/mass_storage \
+  $(PROJECT_DIR)/ext/uzlib/src \
+  simulator/system \
+  simulator/can \
+  simulator
+
+# List ASM source files here
+ASMSRC =
+ASMXSRC = $(STARTUPASM) $(PORTASM) $(OSALASM)
+
+#
+# Project, sources and paths
+##############################################################################
+
+##############################################################################
+# Compiler settings
+#
+
+ifeq ($(IS_WIN),yes)
+  # ChibiOS seem to require 32 bit compiler at least on Windows
+  # base 32-bit Cygwin is needed with mingw64 32-bit version
+  # Cygwin64 would not debug if used with mingw64 32-bit version
+  # 32 bit GDB available at http://www.equation.com/servlet/equation.cmd?fa=gdb
+
+  TRGT = i686-w64-mingw32-
+else
+  TRGT =
+endif
+
+# Use 'make USE_CLANG=yes' to build with clang/clang++ instead of gcc/g++.
+ifeq ($(USE_CLANG),yes)
+  CC   = clang
+  CPPC = clang++
+  LD   = clang++
+  COV  = llvm-cov gcov
+else
+  CC   = $(TRGT)gcc
+  CPPC = $(TRGT)g++
+  # Enable loading with g++ only if you need C++ runtime support.
+  # NOTE: You can use C++ even without C++ support if you are careful. C++
+  #       runtime support makes code size explode.
+  #LD   = $(CC)
+  LD   = $(CPPC)
+  COV  = gcov
+endif
+
+CP   = $(TRGT)objcopy
+AS   = $(CC) -x assembler-with-cpp
+AR   = $(TRGT)ar
+OD   = $(TRGT)objdump
+SZ   = $(TRGT)size
+BIN  = $(CP) -O binary
+
+# Define C warning options here
+CWARN = -Wall -Wextra -Wundef -Wstrict-prototypes
+
+# Define C++ warning options here
+CPPWARN = -Wall -Wextra -Wundef
+
+#
+# Compiler settings
+##############################################################################
+
+##############################################################################
+# Start of user section
+#
+
+# List all user C define here, like -D_DEBUG=1
+UDEFS = -DSIMULATOR
+DDEFS += -DFIRMWARE_ID=\"simulator\" -DSHORT_BOARD_NAME=$(SHORT_BOARD_NAME)
+DDEFS += -DMETA_GENERATED_H_OVERRIDE=\"rusefi_generated_$(SHORT_BOARD_NAME).h\"
+DDEFS += -DMETA_ENGINE_GENERATED_H_OVERRIDE=\"engine_configuration_generated_structures_$(SHORT_BOARD_NAME).h\"
+DDEFS += -DSIGNATURE_H_OVERRIDE=\"signature_$(SHORT_BOARD_NAME).h\"
+DDEFS += -DEFI_EMBED_INI_MSD=TRUE
+DDEFS += -DHAL_USE_USB_MSD=FALSE
+DDEFS += -DEFI_USE_COMPRESSED_INI_MSD=FALSE
+
+
+# Define ASM defines here
+UADEFS =
+
+# List all user directories here
+UINCDIR =
+
+# List the user directory to look for the libraries here
+ULIBDIR =
+
+# List all user libraries here
+ifeq ($(IS_WIN),yes)
+ULIBS = -lws2_32 -static
+else
+ULIBS =
+endif
+
+ifeq ($(SANITIZE),yes)
+	ULIBS += -fsanitize=address
+endif
+
+#
+# End of user defines
+##############################################################################
+
+include $(RULESPATH)/rules.mk
+
+# Clang does not support GCC's -Wa,-alms= (assembler listing) option.
+# Re-define the flags without the -Wa, listing options when building with clang.
+ifeq ($(USE_CLANG),yes)
+  CFLAGS   = $(MCFLAGS) $(OPT) $(COPT) $(CWARN) $(DEFS)
+  CPPFLAGS = $(MCFLAGS) $(OPT) $(CPPOPT) $(CPPWARN) $(DEFS)
+  ASFLAGS  = $(MCFLAGS) $(OPT) $(ADEFS)
+  ASXFLAGS = $(MCFLAGS) $(OPT) $(ADEFS)
+  CFLAGS  += -MD -MP -MF $(DEPDIR)/$(@F).d
+  CPPFLAGS += -MD -MP -MF $(DEPDIR)/$(@F).d
+  ASFLAGS += -MD -MP -MF $(DEPDIR)/$(@F).d
+  ASXFLAGS += -MD -MP -MF $(DEPDIR)/$(@F).d
+endif
+
+ifneq (yes,$(SUBMAKE))
+include $(PROJECT_DIR)/rusefi_config.mk
+include $(PROJECT_DIR)/docs_enums.mk
+
+# rusefi_config.mk hooks the ramdisk image generation onto TCPPOBJS, which only the ARM
+# ChibiOS rules define; the simulator port rules use OBJS/CPPOBJS instead. Without this
+# hook mass_storage_init.cpp compiles against the checked-in placeholder ramdisk_image.h
+# and the TS FS_IMAGE pages serve a zero-size image.
+$(OBJS): $(RAMDISK)
+endif
+
+# Enable precompiled header
+include $(PROJECT_DIR)/rusefi_pch.mk
+
+$(OBJS): .os-sentinel
+
+.os-sentinel: .FORCE
+	if [ "$$(cat $@ 2>/dev/null)" != $(OS) ]; then \
+	echo $(OS) >$@; fi
+
+.FORCE:
+
+.PHONY: CLEAN_RULE_HOOK CLEAN_PCH_HOOK
+
+CLEAN_RULE_HOOK: CLEAN_PCH_HOOK
+	@echo Cleaning Simulator
+	rm -rf build
+	rm -rf .dep
+	@echo Done Cleaning Simulator

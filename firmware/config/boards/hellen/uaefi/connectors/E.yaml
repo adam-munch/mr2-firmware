@@ -1,0 +1,60 @@
+meta: config/boards/hellen_mm100_meta.h
+
+pins:
+  - pin: E1
+    function: WBO Heater Positive (pin 4)
+    type: wbo
+    color: grey
+
+  - pin: E3
+    function: WBO Heater Negative (pin 3)
+    color: white
+    type: wbo
+
+  - pin: E6
+    function: WBO Vs/Ip (Vm) (pin 2)
+    type: wbo
+    color: yellow
+
+  - pin: E5
+    function: WBO Ip (pin 1)
+    type: wbo
+    color: red
+
+  - pin: E2
+    function: WBO CalR (pin 5)
+    type: wbo
+    color: green
+
+  - pin: E4
+    function: WBO Vs (Un) (pin 6)
+    type: wbo
+    color: black
+
+info:
+  cid: e
+  title: uaefi
+  name: connector E
+  directory: hellen/uaefi
+  board_url: https://wiki.rusefi.com/uaefi
+  image:
+    file: uaefi-E.jpg
+  pins:
+    - pin: E1
+      x: 361
+      y: 221
+    - pin: E2
+      x: 254
+      y: 221
+    - pin: E3
+      x: 153
+      y: 221
+    - pin: E4
+      x: 361
+      y: 116
+    - pin: E5
+      x: 254
+      y: 116
+    - pin: E6
+      x: 153
+      y: 116

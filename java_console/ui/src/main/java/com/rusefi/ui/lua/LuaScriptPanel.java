@@ -1,0 +1,378 @@
+package com.rusefi.ui.lua;
+
+import com.devexperts.logging.Logging;
+import com.opensr5.ConfigurationImage;
+import com.opensr5.ini.IniFileModel;
+import com.opensr5.ini.field.StringIniField;
+import com.rusefi.binaryprotocol.BinaryProtocol;
+import com.rusefi.binaryprotocol.ShortcutsHelper;
+import com.rusefi.config.generated.Integration;
+import com.rusefi.core.ui.AutoupdateUtil;
+import com.rusefi.io.ConnectionStatusLogic;
+import com.rusefi.io.LinkManager;
+import com.rusefi.ui.MessagesPaneBackgroundColor;
+import com.rusefi.ui.MessagesPanel;
+import com.rusefi.ui.UIContext;
+import com.rusefi.core.preferences.storage.Node;
+import com.rusefi.ui.util.URLLabel;
+import com.rusefi.ui.widgets.AnyCommand;
+import neoe.formatter.lua.LuaFormatter;
+import org.jetbrains.annotations.NotNull;
+
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.ActionListener;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.io.File;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.util.Objects;
+
+import static com.devexperts.logging.Logging.getLogging;
+
+public class LuaScriptPanel {
+    private static final Logging log = getLogging(LuaScriptPanel.class);
+
+    private static final String SCRIPT_FOLDER_CONFIG_KEY = "SCRIPT_FOLDER";
+    private final UIContext context;
+    private final Node config;
+    private final JPanel mainPanel = new JPanel(new BorderLayout());
+    private final AnyCommand command;
+    private final LuaTextEditor scriptText;
+    private final MessagesPanel mp;
+
+    public LuaScriptPanel(UIContext context, Node config) {
+        this.context = context;
+        this.config = config;
+        command = AnyCommand.createField(context, config, true, true);
+
+        // Upper panel: command entry, etc
+        JPanel upperPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+
+        JButton writeButton = new JButton("Write to ECU");
+        JButton burnButton = new JButton("Burn to ECU");
+
+        mp = new MessagesPanel(null, config);
+
+        mp.getMessagesView().listener = message -> {
+            if (message.contains("BEEP"))
+                Toolkit.getDefaultToolkit().beep();
+        };
+
+        writeButton.addActionListener(e -> {
+            writeScriptToEcu();
+        });
+
+        burnButton.addActionListener(e -> {
+            LinkManager linkManager = context.getLinkManager();
+
+            linkManager.submit(() -> {
+                BinaryProtocol bp = linkManager.getBinaryProtocol();
+                bp.burn();
+            });
+        });
+
+        JButton moreButton = new JButton("More...");
+        moreButton.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseReleased(MouseEvent me) {
+                JPopupMenu menu = new JPopupMenu();
+                JMenuItem format = new JMenuItem("Format Script");
+                format.addActionListener(e -> formatScript());
+                JMenuItem reset = new JMenuItem("Reset Lua");
+                reset.addActionListener(e -> resetLua());
+
+
+                String scriptName = LuaIncludeSyntax.getScriptName(getScript());
+                JMenuItem loadFromDisc;
+                if (scriptName == null) {
+                    loadFromDisc = new JMenuItem("Script name not specified");
+                    loadFromDisc.setEnabled(false);
+                } else if (!new File(getScriptFullFileName()).exists()) {
+                    loadFromDisc = new JMenuItem(scriptName + " not found in " + getWorkingFolder());
+                    loadFromDisc.setEnabled(false);
+                } else {
+                    loadFromDisc = new JMenuItem("Reload " + scriptName);
+                    loadFromDisc.addActionListener(e -> reloadFromDisc());
+                }
+
+                JMenuItem selectFolder = createSelectFolderMenuItem();
+
+
+                menu.add(format);
+                menu.add(reset);
+                menu.add(new JSeparator());
+                menu.add(loadFromDisc);
+                menu.add(selectFolder);
+
+
+                menu.show(moreButton, me.getX(), me.getY());
+            }
+        });
+
+
+        upperPanel.add(writeButton);
+        upperPanel.add(burnButton);
+        upperPanel.add(moreButton);
+        upperPanel.add(command.getContent());
+        upperPanel.add(new URLLabel("Lua Wiki", "https://wiki.rusefi.com/Lua-Scripting"));
+
+        // Center panel - script editor and log
+        JPanel scriptPanel = new JPanel(new BorderLayout());
+
+        scriptText = new LuaTextEditor(context);
+        JComponent editorComponent = scriptText.getControl();
+        // enforce monospaced font for editor
+        editorComponent.setFont(new Font(Font.MONOSPACED, Font.PLAIN, editorComponent.getFont().getSize()));
+        scriptPanel.add(editorComponent, BorderLayout.CENTER);
+
+        //centerPanel.add(, BorderLayout.WEST);
+        JPanel messagesPanel = new JPanel(new BorderLayout());
+        messagesPanel.add(BorderLayout.NORTH, mp.getButtonPanel());
+        // enforce monospaced font for log view
+        Font current = mp.getFont();
+        Font mono = new Font(Font.MONOSPACED, Font.PLAIN, current.getSize());
+        mp.setFont(mono, config);
+        messagesPanel.add(BorderLayout.CENTER, mp.getMessagesScroll());
+
+        // addAndFireListener (not addListener): the Lua tab is usually opened AFTER the ECU is
+        // already connected, so a plain listener would miss the connect event and never read the
+        // script, leaving the editor blank. Firing immediately reads the current script on open.
+        ConnectionStatusLogic.INSTANCE.addAndFireListener(isConnected -> {
+            // readFromECU() does live ECU I/O (the Lua script lives on its own TS page now), which
+            // must run on the communication thread — not the EDT — or executeCommand() throws
+            // "Communication on wrong thread"
+            context.getLinkManager().submit(() -> {
+                try {
+                    readFromECU();
+                } catch (Throwable e) {
+                    log.error("Unexpected" + e, e);
+                }
+            });
+        });
+
+        JSplitPane centerPanel = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, scriptPanel, messagesPanel);
+        centerPanel.setResizeWeight(0.5);
+        centerPanel.setDividerLocation(0.5);
+
+        mainPanel.add(upperPanel, BorderLayout.NORTH);
+        mainPanel.add(centerPanel, BorderLayout.CENTER);
+
+        AutoupdateUtil.trueLayoutAndRepaint(mainPanel);
+    }
+
+    private String getScriptFullFileName() {
+        String scriptName = LuaIncludeSyntax.getScriptName(getScript());
+        if (scriptName == null)
+            return null;
+        return getWorkingFolder() + File.separator + scriptName;
+    }
+
+    private void reloadFromDisc() {
+        String fullFileName = getScriptFullFileName();
+        if (fullFileName == null)
+            return;
+        System.out.println("Reading " + fullFileName);
+
+        try {
+            File file = new File(fullFileName);
+            log.info("Reloading " + file.getAbsolutePath());
+            String discContent = CompatibilityFiles.readString(file.toPath());
+
+            String newLua = LuaIncludeSyntax.reloadScript(discContent, name -> {
+                String includeFullName = getWorkingFolder() + File.separator + name;
+                File includeFile = new File(includeFullName);
+                log.info("Reading " + includeFile.getAbsolutePath());
+                try {
+                    String string = CompatibilityFiles.readString(includeFile.toPath());
+                    log.info("Got " + string.length() + " bytes");
+                    return string;
+                } catch (IOException e) {
+                    log.error("ERROR ", e);
+                    return "ERROR reading " + name + ": " + e.getMessage();
+                }
+            });
+
+            BinaryProtocol bp = context.getBinaryProtocol();
+            StringIniField luaScript = getLuaScriptField(bp);
+
+            if (luaScript == null) {
+                setText("luaScript field not found in .ini");
+                return;
+            }
+
+            if (newLua.length() >= luaScript.getSize()) {
+                setText(newLua.length() + " bytes would not fit sorry current limit " + luaScript.getSize());
+            } else {
+                setText(newLua);
+                // and send to ECU (without burn!)
+                writeScriptToEcu();
+            }
+        } catch (IOException e) {
+            System.err.println("Error " + e);
+        }
+    }
+
+    @NotNull
+    private JMenuItem createSelectFolderMenuItem() {
+        JMenuItem selectFolder = new JMenuItem("Select Working Folder");
+        selectFolder.addActionListener(e -> {
+            JFileChooser fc = new JFileChooser();
+            fc.setCurrentDirectory(new File(getWorkingFolder()));
+            fc.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+            int returnVal = fc.showSaveDialog(selectFolder);
+            if (returnVal == JFileChooser.APPROVE_OPTION) {
+                String newWorkingFolder = fc.getSelectedFile().getPath();
+                config.setProperty(SCRIPT_FOLDER_CONFIG_KEY, newWorkingFolder);
+            }
+
+        });
+        return selectFolder;
+    }
+
+    private void formatScript() {
+        String sourceCode = getScript();
+        try {
+            String formatted = new LuaFormatter().format(sourceCode, new LuaFormatter.Env());
+            setText(formatted);
+        } catch (Exception ignored) {
+            // todo: fix luaformatter no reason for exception
+        }
+    }
+
+    private void setText(String luaScript) {
+        // May be called from the communication thread (readFromECU); Swing requires EDT.
+        SwingUtilities.invokeLater(() -> scriptText.setText(luaScript));
+    }
+
+    private String getWorkingFolder() {
+        return config.getProperty(SCRIPT_FOLDER_CONFIG_KEY, System.getProperty("user.home"));
+    }
+
+    public JPanel getPanel() {
+        return mainPanel;
+    }
+
+    public ActionListener getTabSelectedListener() {
+        return e -> {
+            if (command != null)
+                command.requestFocus();
+        };
+    }
+
+    void readFromECU() {
+        BinaryProtocol bp = context.getBinaryProtocol();
+
+        if (bp == null) {
+            setText("No ECU located");
+            return;
+        }
+
+        StringIniField luaScript = getLuaScriptField(bp);
+        if (luaScript == null) {
+            setText("luaScript field not found in .ini");
+            return;
+        }
+
+        byte[] scriptArr;
+        if (luaScript.getPageIndex() == 0) {
+            // Main settings page: comes from the already-fetched controller image.
+            ConfigurationImage image = bp.getControllerConfiguration();
+            if (image == null) {
+                log.info("readFromECU: page 0 branch but no configuration image");
+                setText("No configuration image");
+                return;
+            }
+            ByteBuffer luaScriptBuffer = image.getByteBuffer(luaScript.getOffset(), luaScript.getSize());
+            scriptArr = new byte[luaScript.getSize()];
+            luaScriptBuffer.get(scriptArr);
+        } else {
+            // Secondary page (new firmware places luaScript on its own TS page).
+            // The main image only holds page 0, so fetch directly from the ECU.
+            scriptArr = bp.readFromPage(luaScript.getPageIndex(), luaScript.getOffset(), luaScript.getSize());
+            if (scriptArr == null) {
+                log.info("readFromECU: readFromPage returned null for page=" + luaScript.getDisplayPage());
+                setText("Failed to read luaScript from page " + luaScript.getDisplayPage());
+                return;
+            }
+        }
+
+        int i = findNullTerminator(scriptArr);
+        setText(new String(scriptArr, 0, i, StandardCharsets.US_ASCII));
+    }
+
+    public static StringIniField getLuaScriptField(BinaryProtocol bp) {
+        Objects.requireNonNull(bp, "BinaryProtocol");
+        // todo: do we have "luaScript" as code-generated constant anywhere?
+        IniFileModel iniFile = bp.getIniFileNullable();
+        if (iniFile == null)
+            return null;
+        // findIniField searches both the main page (old firmware) and secondary
+        // pages (new firmware places luaScript on its own dedicated page).
+        return iniFile.findIniField("LUASCRIPT")
+            .filter(f -> f instanceof StringIniField)
+            .map(f -> (StringIniField) f)
+            .orElse(null);
+    }
+
+    @SuppressWarnings("StatementWithEmptyBody")
+    private static int findNullTerminator(byte[] scriptArr) {
+        int i;
+        for (i = 0; i < scriptArr.length && scriptArr[i] != 0; i++) ;
+        return i;
+    }
+
+    private void writeScriptToEcu() {
+        String script = getScript();
+
+        LinkManager linkManager = context.getLinkManager();
+
+        linkManager.submit(() -> {
+            BinaryProtocol bp = linkManager.getBinaryProtocol();
+
+            StringIniField field = getLuaScriptField(bp);
+            if (field == null) {
+                log.error("luaScript field not found in .ini — cannot write");
+                return;
+            }
+
+            byte[] paddedScript = getScriptBytes(field, script);
+
+            log.info("Sending " + field + " page=" + field.getDisplayPage());
+            bp.writeInBlocks(paddedScript, 0, field.getOffset(), paddedScript.length, field.getPageIndex());
+
+// need a way to modify script on the fly with shorter execution gaps to keep E65 CAN network happy
+// todo: auto-burn on console close check box in case of Lua changes?
+// todo: check box for auto-burn?
+//            bp.burn();
+
+            // writeInBlocks above already updated the ECU's RAM copy of the script (on the
+            // main page for old firmware, or the dedicated Lua page for new firmware). The
+            // running Lua VM does not reload on its own, so trigger a reset to re-run the new
+            // script. (Note: there is no automatic reload on burn — the reset is what reloads.)
+            resetLua();
+        });
+        // resume messages on 'write new script to ECU'
+        mp.setPaused(false);
+        // the new script may no longer send 'set_bg_color=', drop back to default
+        MessagesPaneBackgroundColor.reset();
+    }
+
+    private static byte @NotNull [] getScriptBytes(StringIniField luaScript, String script) {
+        byte[] paddedScript = new byte[luaScript.getSize()];
+        byte[] scriptBytes = script.getBytes(StandardCharsets.US_ASCII);
+        System.arraycopy(scriptBytes, 0, paddedScript, 0, scriptBytes.length);
+        return paddedScript;
+    }
+
+    private String getScript() {
+        String script = scriptText.getText();
+        return script;
+    }
+
+    void resetLua() {
+        this.context.getCommandQueue().write(Integration.CMD_LUA_RESET);
+    }
+}

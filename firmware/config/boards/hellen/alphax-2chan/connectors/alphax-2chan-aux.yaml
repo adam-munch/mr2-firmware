@@ -1,0 +1,70 @@
+meta: config/boards/hellen_meta.h
+
+pins:
+  - pin: X1
+    meta: H144_IN_AUX1_ANALOG
+    function: Auxiliary analog input 1 PullDown 500K
+    type: av
+    class: analog_inputs
+    ts_name: X1 - AIN1
+
+  - pin: X2
+    meta: H144_LS_3
+    function: Injector 3
+    class: outputs
+    type: inj
+    ts_name: Aux2 - Inj 3
+
+  - pin: X3
+    meta: H144_IN_AUX2_ANALOG
+    function: Auxiliary analog input 2 PullDown 500K
+    type: av
+    class: analog_inputs
+    ts_name: X3 - AIN2
+
+  - pin: X4
+    meta: H144_LS_4
+    function: Injector 4
+    class: outputs
+    type: inj
+    ts_name: Aux4 - Inj 4
+
+  - pin: X6
+    meta: H144_IGN_4
+    function: Smart Ignition Coil 4
+    class: outputs
+    type: ign
+    ts_name: Aux6 - Ign 4
+
+  - pin: X7
+    meta: H144_IN_AUX4_ANALOG
+    function: Auxiliary analog input 4 PullDown 500K
+    type: av
+    class: analog_inputs
+    ts_name: X7 - AIN4
+
+  - pin: X8
+    meta: H144_IGN_3
+    function: Smart Ignition Coil 3
+    class: outputs
+    type: ign
+    ts_name: Aux8 - Ign 3
+
+  - pin: X9
+    meta: H144_LS_5
+    class: outputs
+    type: hs
+    ts_name: Aux9 - HS1
+
+  - pin: X10
+    meta: H144_LS_6
+    class: outputs
+    type: hs
+    ts_name: Aux10 - HS2
+
+info:
+  cid: aux
+  title: AlphaX 2chan
+  name: AlphaX 2chan
+  board_url: https://rusefi.com/s/2chan
+  directory: hellen/alphax-2chan

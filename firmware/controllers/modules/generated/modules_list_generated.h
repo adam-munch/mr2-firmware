@@ -1,0 +1,32 @@
+// TODO: generate me with a util! (read MODULES_LIST var)
+TachometerModule,
+FuelPumpController,
+GearDetector,
+TripOdometer,
+FanControl1,FanControl2,
+MapAveragingModule,
+ExampleModule,
+SdLogTrigger,
+
+#if EFI_ETHERNET
+EthernetConsoleModule,
+#endif
+
+#ifdef MODULE_VVL_CONTROLLER
+VvlController,
+#endif
+
+#ifdef MODULE_CHECK_ENGINE_LIGHT
+CheckEngineLight,
+#endif
+
+#ifdef MODULE_MIL
+MILController,
+#endif
+
+#if MODULE_DTC_MANAGER
+DtcManagerModule,
+#endif
+
+// Board-specific extra module types appended to Engine::engineModules
+#include "board_modules_list.h"

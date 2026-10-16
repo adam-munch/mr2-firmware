@@ -1,0 +1,250 @@
+#include "pch.h"
+
+#include "knock_logic.h"
+
+using ::testing::StrEq;
+using ::testing::ThrowsMessage;
+
+struct MockKnockController : public KnockControllerBase {
+	float getKnockThreshold() const override {
+		// Knock threshold of 20dBv
+		return 20;
+	}
+
+	float getMaximumRetard() const override {
+		// Maximum 8 degrees retarded
+		return 8;
+	}
+};
+
+TEST(Knock, frequencyApproximation) {
+  // that's first harmonic while default is knockDetectionUseDoubleFrequency for second harmonic
+  ASSERT_NEAR(7.3456, bore2frequency(78/*mm*/), EPS2D);
+}
+
+TEST(Knock, InvalidFrequencyIsIgnoredWhenDisabled) {
+	EngineTestHelper eth(engine_type_e::TEST_ENGINE);
+	engineConfiguration->enableSoftwareKnock = false;
+	engineConfiguration->knockFrequency = 7.5f;
+
+	EXPECT_TRUE(validateConfigOnStartUpOrBurn());
+}
+
+TEST(Knock, InvalidFrequencyIsRejectedWhenEnabled) {
+	EngineTestHelper eth(engine_type_e::TEST_ENGINE);
+	engineConfiguration->enableSoftwareKnock = true;
+	engineConfiguration->knockFrequency = 7.5f;
+
+	EXPECT_FATAL_ERROR(validateConfigOnStartUpOrBurn());
+}
+
+TEST(Knock, SensingDisabledIsAcceptedOnBurn) {
+	EngineTestHelper eth(engine_type_e::TEST_ENGINE);
+	engineConfiguration->enableSoftwareKnock = false;
+
+	EXPECT_TRUE(validateConfigOnStartUpOrBurn(false));
+}
+
+TEST(Knock, SensingEnabledOnStartup) {
+	EngineTestHelper eth(engine_type_e::TEST_ENGINE);
+	engineConfiguration->enableSoftwareKnock = true;
+
+	for (float frequency : {0.0f, 7500.0f}) {
+		engineConfiguration->knockFrequency = frequency;
+		EXPECT_THAT([] { validateConfigOnStartUpOrBurn(); },
+			ThrowsMessage<std::logic_error>(StrEq(
+				"Knock sensing is enabled but this firmware does not support software knock")));
+		EXPECT_TRUE(engineConfiguration->enableSoftwareKnock);
+	}
+}
+
+TEST(Knock, SensingEnabledOnBurn) {
+	EngineTestHelper eth(engine_type_e::TEST_ENGINE);
+	engineConfiguration->enableSoftwareKnock = true;
+
+	for (float frequency : {0.0f, 7500.0f}) {
+		engineConfiguration->knockFrequency = frequency;
+		EXPECT_THAT([] { validateConfigOnStartUpOrBurn(false); },
+			ThrowsMessage<std::logic_error>(StrEq(
+				"Knock sensing is enabled but this firmware does not support software knock")));
+		EXPECT_TRUE(engineConfiguration->enableSoftwareKnock);
+	}
+}
+
+TEST(Knock, Retards) {
+	EngineTestHelper eth(engine_type_e::TEST_ENGINE);
+
+	// Aggression of 10%
+	engineConfiguration->knockRetardAggression = 10;
+	// disable suppress for test
+	engineConfiguration->knockSuppressMinTps = 0;
+
+	setArrayValues(engine->engineState.timingAdvance, 0.0f);
+
+	MockKnockController dut;
+	dut.onFastCallback();
+
+	// No retard unless we knock
+	ASSERT_FLOAT_EQ(dut.getKnockRetard(), 0);
+
+	// Need to call onFastCallback once to update thresholds from the Mock
+	dut.onFastCallback();
+
+	// Send some weak knocks, should yield no response
+	for (size_t i = 0; i < 10; i++) {
+		dut.onKnockSenseCompleted(0, 10, 0);
+	}
+
+	EXPECT_FLOAT_EQ(dut.getKnockRetard(), 0);
+
+	// Send a strong knock!
+	dut.onKnockSenseCompleted(0, 30, 0);
+
+	// Should retard 10% of the distance between current timing (0) and "minimum" (-20)
+	// dist = 0 - (-20) = 20. 10% of 20 = 2.
+	EXPECT_FLOAT_EQ(dut.getKnockRetard(), 2);
+
+	// Send tons of strong knocks, make sure we don't go over the configured limit
+	for (size_t i = 0; i < 100; i++) {
+		dut.onKnockSenseCompleted(0, 30, 0);
+	}
+
+	EXPECT_FLOAT_EQ(dut.getKnockRetard(), 8);
+}
+
+TEST(Knock, Reapply) {
+	EngineTestHelper eth(engine_type_e::TEST_ENGINE);
+	setArrayValues(engine->engineState.timingAdvance, 0.0f);
+
+	// disable suppress for test
+	engineConfiguration->knockSuppressMinTps = 0;
+
+	MockKnockController dut;
+	dut.onFastCallback();
+
+	// Aggression of 10%
+	engineConfiguration->knockRetardAggression = 10;
+	// Apply 1 degree/second
+	engineConfiguration->knockRetardReapplyRate = 1;
+
+	// disable suppress for test
+	engineConfiguration->knockSuppressMinTps = 0;
+
+	// Send a strong knock!
+	dut.onKnockSenseCompleted(0, 30, 0);
+
+	// Should retard 10% of the distance between current timing (0) and "minimum" (-20)
+	// dist = 0 - (-20) = 20. 10% of 20 = 2.
+	EXPECT_FLOAT_EQ(dut.getKnockRetard(), 2);
+
+	constexpr auto fastPeriodSec = FAST_CALLBACK_PERIOD_MS / 1000.0f;
+
+	// call the fast callback, should reapply 1 degree * callback period
+	dut.onFastCallback();
+	EXPECT_FLOAT_EQ(dut.getKnockRetard(), 2 - 1.0f * fastPeriodSec);
+
+	// 10 updates total
+	for (size_t i = 0; i < 9; i++) {
+		dut.onFastCallback();
+	}
+	EXPECT_FLOAT_EQ(dut.getKnockRetard(), 2 - 10 * 1.0f * fastPeriodSec);
+
+	// Spend a long time without knock
+	for (size_t i = 0; i < 1000; i++) {
+		dut.onFastCallback();
+	}
+
+	// Should have no knock retard
+	EXPECT_FLOAT_EQ(dut.getKnockRetard(), 0);
+}
+
+TEST(Knock, FuelTrim) {
+	EngineTestHelper eth(engine_type_e::TEST_ENGINE);
+	setArrayValues(engine->engineState.timingAdvance, 0.0f);
+
+	// Aggression of 10%
+	engineConfiguration->knockFuelTrimAggression = 10;
+	engineConfiguration->knockFuelTrim = 30;
+	// disable suppress for test
+	engineConfiguration->knockSuppressMinTps = 0;
+
+	MockKnockController dut;
+	dut.onFastCallback();
+
+	// No trim unless we knock
+	ASSERT_FLOAT_EQ(dut.getFuelTrimMultiplier(), 1.0);
+
+	// Need to call onFastCallback once to update thresholds from the Mock
+	dut.onFastCallback();
+
+	// Send some weak knocks, should yield no response
+	for (size_t i = 0; i < 10; i++) {
+		dut.onKnockSenseCompleted(0, 10, 0);
+	}
+
+	EXPECT_FLOAT_EQ(dut.getFuelTrimMultiplier(), 1.0);
+
+	// Send a strong knock!
+	dut.onKnockSenseCompleted(0, 30, 0);
+
+	// 30% * 10% = 3% = 0.03
+	EXPECT_FLOAT_EQ(dut.getFuelTrimMultiplier(), 1.03);
+
+	// Send tons of strong knocks, make sure we don't go over the configured limit
+	for (size_t i = 0; i < 100; i++) {
+		dut.onKnockSenseCompleted(0, 30, 0);
+	}
+
+	EXPECT_FLOAT_EQ(dut.getFuelTrimMultiplier(), 1.3);
+}
+
+TEST(Knock, FuelTrimReapply) {
+	EngineTestHelper eth(engine_type_e::TEST_ENGINE);
+	setArrayValues(engine->engineState.timingAdvance, 0.0f);
+
+	// disable suppress for test
+	engineConfiguration->knockSuppressMinTps = 0;
+
+	MockKnockController dut;
+	dut.onFastCallback();
+
+	// Aggression of 100%
+	engineConfiguration->knockFuelTrimAggression = 10;
+	// Apply 1%/second
+	engineConfiguration->knockFuelTrimReapplyRate = 1;
+
+  // fuel trim 30%
+	engineConfiguration->knockFuelTrim = 30;
+
+	// disable suppress for test
+	engineConfiguration->knockSuppressMinTps = 0;
+
+	// Send a strong knock!
+	dut.onKnockSenseCompleted(0, 30, 0);
+
+  // 100% trim
+  float trim = 1.03;
+
+	// Should retard 100% of the distance between current timing and "maximum"
+	EXPECT_FLOAT_EQ(dut.getFuelTrimMultiplier(), trim);
+
+	constexpr auto fastPeriodSec = FAST_CALLBACK_PERIOD_MS / 1000.0f;
+
+	// call the fast callback, should reapply 1% trim * callback period
+	dut.onFastCallback();
+	EXPECT_FLOAT_EQ(dut.getFuelTrimMultiplier(), trim - 0.01f * fastPeriodSec);
+
+	// 10 updates total
+	for (size_t i = 0; i < 9; i++) {
+		dut.onFastCallback();
+	}
+	EXPECT_FLOAT_EQ(dut.getFuelTrimMultiplier(), trim - 10 * 0.01f * fastPeriodSec);
+
+	// Spend a long time without knock
+	for (size_t i = 0; i < 2000; i++) {
+		dut.onFastCallback();
+	}
+
+	// Should have no knock retard
+	EXPECT_FLOAT_EQ(dut.getFuelTrimMultiplier(), 1.0);
+}

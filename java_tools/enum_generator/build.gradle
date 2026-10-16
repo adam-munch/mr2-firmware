@@ -1,0 +1,7 @@
+apply from: dependenciesPath
+
+dependencies {
+  api project(':logging')
+  implementation global_libs.json
+  api project(':shared_io')
+}

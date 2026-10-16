@@ -1,0 +1,223 @@
+/**
+ * @file boards/hellen/uaefi/board_configuration.cpp
+ *
+ * See https://rusefi.com/s/uaefi
+ *
+ * @author Andrey Belomutskiy, (c) 2012-2023
+ */
+
+#include "pch.h"
+#include "defaults.h"
+#include "hellen_meta.h"
+#include "hellen_leds_100.cpp"
+#include "board_overrides.h"
+#include "connectors/generated_board_pin_names.h"
+#ifndef EFI_BOOTLOADER
+#include "AemXSeriesLambda.h"
+#endif // EFI_BOOTLOADER
+
+#include "../uaefi121/mega-uaefi.h"
+
+static void setupDefaultSensorInputs() {
+	engineConfiguration->tps1_1AdcChannel = MM100_IN_TPS_ANALOG;
+	engineConfiguration->tps1_2AdcChannel = MM100_IN_AUX1_ANALOG;
+	engineConfiguration->map.sensor.hwChannel = PIN_D9;
+
+	setPPSInputs(MM100_IN_PPS_ANALOG, MM100_IN_AUX2_ANALOG);
+
+	engineConfiguration->clt.adcChannel = MM100_IN_CLT_ANALOG;
+	engineConfiguration->iat.adcChannel = MM100_IN_IAT_ANALOG;
+
+	engineConfiguration->triggerInputPins[0] = Gpio::MM100_UART8_TX; // VR2 max9924 is the safer default
+	engineConfiguration->camInputs[0] = Gpio::MM100_IN_D1; // HALL1
+	engineConfiguration->camInputs[1] = Gpio::MM100_IN_D2; // HALL2
+
+  engineConfiguration->vehicleSpeedSensorInputPin = Gpio::MM100_IN_D3;
+}
+
+static void uaefi_boardConfigOverrides() {
+	setHellenMegaEnPin();
+	setHellenVbatt();
+
+	hellenMegaSdWithAccelerometer();
+	engineConfiguration->injectionPinMode = OM_DEFAULT;
+
+  engineConfiguration->vrThreshold[0].pin = Gpio::MM100_OUT_PWM6;
+
+	setHellenCan();
+
+	setDefaultHellenAtPullUps();
+
+}
+
+static bool uaefi_fixConfiguration(const engine_configuration_s* /*previousConfiguration*/) {
+  if (engineConfiguration->can2RxPin != Gpio::B12) {
+	  setHellenCan2();
+	  return true;
+  }
+  return false;
+}
+
+/**
+ * @brief Board-specific initialization code.
+ */
+static void uaefi_boardInitHardware() {
+	setupHellenSharedInputs();
+}
+
+/**
+ * @brief   Board-specific configuration defaults.
+ *
+
+ *
+ */
+static void uaefi_boardDefaultConfiguration() {
+	setUaefiBoardDefaultConfiguration();
+
+	engineConfiguration->displayLogicLevelsInEngineSniffer = true;
+	engineConfiguration->isSdCardEnabled = true;
+
+	engineConfiguration->enableSoftwareKnock = true;
+
+	engineConfiguration->canTxPin = Gpio::MM100_CAN_TX;
+	engineConfiguration->canRxPin = Gpio::MM100_CAN_RX;
+
+	setHellenCan2();
+	setHellenUart2();
+
+#if (EFI_CAN_BUS_COUNT >= 3)
+	engineConfiguration->can3TxPin = Gpio::MM100_CAN3_TX;
+	engineConfiguration->can3RxPin = Gpio::MM100_CAN3_RX;
+#endif
+
+  engineConfiguration->mainRelayPin = Gpio::MM100_IGN7;
+ 	engineConfiguration->fanPin = Gpio::MM100_IGN8;
+	engineConfiguration->fuelPumpPin = Gpio::MM100_OUT_PWM2;
+
+	// SPI3 for on-board EGT
+	engineConfiguration->is_enabled_spi_3 = true;
+	// MOSI not needed, we have one-way communication here
+	engineConfiguration->spi3misoPin = Gpio::C11;
+	engineConfiguration->spi3sckPin = Gpio::C10;
+	engineConfiguration->max31855_cs[0] = Gpio::A15;
+	engineConfiguration->max31855spiDevice = SPI_DEVICE_3;
+
+	// "required" hardware is done - set some reasonable defaults
+	setupDefaultSensorInputs();
+	engineConfiguration->enableVerboseCanTx = true;
+
+	engineConfiguration->etbFunctions[0] = DC_Throttle1;
+
+	// Some sensible defaults for other options
+	setCrankOperationMode();
+
+	setAlgorithm(engine_load_mode_e::LM_SPEED_DENSITY);
+
+	engineConfiguration->injectorCompensationMode = ICM_FixedRailPressure;
+
+#ifndef EFI_BOOTLOADER
+	setCommonNTCSensor(&engineConfiguration->clt, HELLEN_DEFAULT_AT_PULLUP);
+	setCommonNTCSensor(&engineConfiguration->iat, HELLEN_DEFAULT_AT_PULLUP);
+#endif // EFI_BOOTLOADER
+
+    setTPS1Calibration(100, 650);
+	hellenWbo();
+}
+
+static Gpio OUTPUTS[] = {
+	Gpio::MM100_INJ6, // B1 injector output 6
+	Gpio::MM100_INJ5, // B2 injector output 5
+	Gpio::MM100_INJ4, // B3 injector output 4
+	Gpio::MM100_INJ3, // B4 injector output 3
+	Gpio::MM100_INJ2, // B5 injector output 2
+	Gpio::MM100_INJ1, // B6 injector output 1
+	Gpio::MM100_INJ7, // B7 Low Side output 1
+	Gpio::MM100_IGN8, // B8 Fan Relay Weak Low Side output 2
+	Gpio::MM100_IGN7, // B9 Main Relay Weak Low Side output 1
+	Gpio::MM100_OUT_PWM2, // B16 Low Side output 4 / Fuel Pump
+	Gpio::MM100_OUT_PWM1, // B17 Low Side output 3
+	Gpio::MM100_INJ8, // B18 Low Side output 2
+	// high sides
+	Gpio::MM100_IGN6, // B10 Coil 6
+	Gpio::MM100_IGN4, // B11 Coil 4
+	Gpio::MM100_IGN3, // B12 Coil 3
+	Gpio::MM100_IGN5, // B13 Coil 5
+	Gpio::MM100_IGN2, // B14 Coil 2
+	Gpio::MM100_IGN1, // B15 Coil 1
+};
+
+static int boardGetMetaOutputsCount() {
+    return efi::size(OUTPUTS);
+}
+
+static int boardGetMetaLowSideOutputsCount() {
+  return getBoardMetaOutputsCount() - 6;
+}
+
+static Gpio* boardGetMetaOutputs() {
+    return OUTPUTS;
+}
+
+// H-bridges use the dedicated CAN_QC_ETB path instead of the on-chip-only generic output path.
+static int boardGetMetaDcOutputsCount() {
+    if (engineConfiguration->engineType == engine_type_e::HONDA_OBD1 ||
+      engineConfiguration->engineType == engine_type_e::MAZDA_MIATA_NA6 ||
+      engineConfiguration->engineType == engine_type_e::MAZDA_MIATA_NA94 ||
+      engineConfiguration->engineType == engine_type_e::MAZDA_MIATA_NA96 ||
+      engineConfiguration->engineType == engine_type_e::MAZDA_MIATA_NB1 ||
+      engineConfiguration->engineType == engine_type_e::MAZDA_MIATA_NB2) {
+        return 0;
+    }
+    return 2;
+}
+
+static void uaefi_slowCallback() {
+#ifndef EFI_BOOTLOADER
+extern AemXSeriesWideband aem1;
+  if (aem1.hasSeenRx) {
+    Gpio green = getRunningLedPin();
+		auto greenPort = getBrainPinPort(green);
+		auto greenPin = getBrainPinIndex(green);
+    palClearPad(greenPort, greenPin); // Hellen has inverted LED control
+  }
+#endif // EFI_BOOTLOADER
+}
+
+void setup_custom_board_overrides() {
+	custom_board_getMetaOutputsCount = boardGetMetaOutputsCount;
+	custom_board_getMetaLowSideOutputsCount = boardGetMetaLowSideOutputsCount;
+	custom_board_getMetaOutputs = boardGetMetaOutputs;
+	custom_board_getMetaDcOutputsCount = boardGetMetaDcOutputsCount;
+	custom_board_InitHardware = uaefi_boardInitHardware;
+	custom_board_DefaultConfiguration = uaefi_boardDefaultConfiguration;
+	custom_board_ConfigOverrides = uaefi_boardConfigOverrides;
+	custom_board_periodicSlowCallback = uaefi_slowCallback;
+	custom_board_fix_configuration = uaefi_fixConfiguration;
+	custom_board_applyBasicConfiguration = applyUaefiBasicConfiguration;
+}
+
+int boardGetAnalogInputDiagnostic(adc_channel_e hwChannel, float voltage) {
+	/* we do not check voltage for valid range yet */
+	(void)voltage;
+
+	switch (hwChannel) {
+		/* inputs that may be affected by incorrect reference voltage */
+		case MM100_IN_TPS_ANALOG:
+		case MM100_IN_PPS_ANALOG:
+		case MM100_IN_IAT_ANALOG:
+		case MM100_IN_CLT_ANALOG:
+		case MM100_IN_O2S_ANALOG:
+		case MM100_IN_O2S2_ANALOG:
+		case MM100_IN_MAP1_ANALOG:
+		case MM100_IN_AUX1_ANALOG:
+		case MM100_IN_AUX2_ANALOG:
+		case MM100_IN_AUX4_ANALOG:
+			/* TODO: more? */
+			return (boardGetAnalogDiagnostic() == ObdCode::None) ? 0 : -1;
+		/* all other inputs should not rely on output 5V */
+		default:
+			return 0;
+	}
+
+	return 0;
+}

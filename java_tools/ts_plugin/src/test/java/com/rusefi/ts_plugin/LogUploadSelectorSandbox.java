@@ -1,0 +1,23 @@
+package com.rusefi.ts_plugin;
+
+import com.efiAnalytics.plugin.ecu.ControllerAccess;
+import com.rusefi.MockitoTestHelper;
+import com.rusefi.core.ui.FrameHelper;
+import com.rusefi.ts_plugin.ui.LogUploadSelector;
+
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
+
+/**
+ * Visual sandbox for the log-upload selector with a mocked ControllerAccess.
+ */
+public class LogUploadSelectorSandbox {
+    public static void main(String[] args) {
+        String projectName = "mre_f4";
+        ControllerAccess controllerAccess = mock(ControllerAccess.class, MockitoTestHelper.NEGATIVE_ANSWER);
+        doReturn(new String[]{projectName}).when(controllerAccess).getEcuConfigurationNames();
+
+        new FrameHelper().showFrame(new LogUploadSelector(() -> controllerAccess).getContent());
+    }
+
+}

@@ -1,0 +1,46 @@
+/**
+ * @file    bench_test.h
+ * @brief	Utility methods related to bench testing.
+ *
+ * todo: rename this file
+ *
+ * @date Sep 8, 2013
+ * @author Andrey Belomutskiy, (c) 2012-2020
+ */
+
+#pragma once
+
+void initBenchTest();
+void onConfigurationChangeBenchTest();
+
+bool isRunningBenchTest();
+const OutputPin *getOutputOnTheBenchTest();
+#if EFI_UNIT_TEST
+void setOutputOnTheBenchTestForUnitTest(OutputPin* output);
+// what the last bench command queued for the (absent in unit tests) bench thread; pin is nullptr if nothing is pending
+struct BenchRequestForUnitTest {
+	OutputPin* pin;
+	float onTimeMs;
+	float offTimeMs;
+	int count;
+	bool swapOnOff;
+};
+BenchRequestForUnitTest takePendingBenchRequestForUnitTest();
+#endif
+
+void fanBench();
+void fan2Bench();
+void fuelPumpBench();
+void acRelayBench();
+void milBench();
+void starterRelayBench();
+
+void executeTSCommand(uint16_t subsystem, uint16_t index);
+void handleBenchCategory(uint16_t index);
+// TS Lua button press counters, incremented by the LUA_COMMAND_1..10 bench commands and the lua_button console command
+extern int luaCommandCounters[LUA_BUTTON_COUNT];
+void doRunBenchTestLuaOutput(size_t humanIndex, float onTimeMs, float offTimeMs, int count);
+int getSavedBenchTestPinStates(uint32_t durationsInStateMs[2]);
+#if EFI_CAN_SUPPORT
+void processCanEcuControl(const CANRxFrame& frame);
+#endif // EFI_CAN_SUPPORT

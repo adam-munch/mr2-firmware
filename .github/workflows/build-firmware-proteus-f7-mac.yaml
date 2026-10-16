@@ -1,0 +1,42 @@
+name: Proteus F7 Firmware on macos-latest
+
+on:
+# realpath drama sorry  push:
+# realpath drama sorry  pull_request:
+  workflow_dispatch:
+
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-java
+
+      - uses: carlosperate/arm-none-eabi-gcc-action@v1.14.0
+        with:
+          release: '14.2.Rel1'
+
+      - name: Checkout Submodules
+        run: |
+          misc/git_scripts/common_submodule_init.sh
+
+      - name: Install required software (macos)
+        run: |
+          brew install mtools zip dosfstools flock coreutils
+
+      - name: Print realpath version
+        run: realpath --version
+
+      - name: Print bash version
+        run: bash --version
+
+      - name: Test Java Compiler
+        run: javac -version
+
+      - name: Build Firmware
+        if: ${{ env.skip != 'true' }}
+        working-directory: ./firmware/config/boards/proteus
+        run: ./compile_proteus_f7.sh

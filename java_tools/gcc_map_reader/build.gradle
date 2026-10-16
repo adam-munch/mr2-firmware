@@ -1,0 +1,9 @@
+defaultTasks 'shadowJar'
+
+shadowJar {
+    manifest {
+        attributes(
+            'Main-Class': 'rusefi.GccMapReader'
+        )
+    }
+}

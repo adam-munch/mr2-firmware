@@ -1,0 +1,5 @@
+apply from: dependenciesPath
+
+dependencies {
+    implementation global_libs.jsr305
+}

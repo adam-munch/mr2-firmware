@@ -1,0 +1,24 @@
+package com.rusefi;
+
+import com.rusefi.core.OsUtil;
+
+import javax.swing.*;
+
+import static com.rusefi.ui.util.UiUtils.setToolTip;
+
+public class PortsComboBox {
+    private final JComboBox<PortResult> comboPorts = new JComboBox<>();
+
+    public PortsComboBox() {
+        if (OsUtil.isWindows()) {
+            setToolTip(comboPorts, "Use 'Device Manager' icon above to launch Device Manager",
+                "In 'Ports' section look for ",
+                "'STMicroelectronics Virtual COM Port' for USB port",
+                "'USB Serial Port' for TTL port");
+        }
+    }
+
+    public JComboBox<PortResult> getComboPorts() {
+        return comboPorts;
+    }
+}

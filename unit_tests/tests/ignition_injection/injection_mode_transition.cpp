@@ -1,0 +1,101 @@
+/*
+ * @file injection_mode_transition.cpp
+ *
+ *  Created on: Jul 19, 2020
+ * @author Andrey Belomutskiy, (c) 2012-2020
+ */
+
+#include "pch.h"
+
+using ::testing::_;
+
+static void doRevolution(EngineTestHelper& eth, int periodMs) {
+	float halfToothTime = (periodMs / 6.0f) / 2;
+
+	eth.smartFireRise(halfToothTime);
+	eth.fireFall(halfToothTime);
+	eth.smartFireRise(halfToothTime);
+	eth.fireFall(halfToothTime);
+	eth.smartFireRise(halfToothTime);
+	eth.fireFall(halfToothTime);
+
+	// now missing tooth
+	eth.smartFireRise(halfToothTime);
+	eth.fireFall(3 * halfToothTime);
+
+	// This tooth is the sync point!
+	eth.smartFireRise(halfToothTime);
+	eth.fireFall(halfToothTime);
+}
+
+// https://github.com/rusefi/rusefi/issues/1592
+TEST(fuelControl, transitionIssue1592) {
+
+	EngineTestHelper eth(engine_type_e::TEST_ENGINE);
+	engine->tdcMarkEnabled = false;
+	setupSimpleTestEngineWithMafAndTT_ONE_trigger(&eth, IM_SEQUENTIAL);
+
+	// fast callbacks now run while we advance time (no NoFastCall hack), so airmass
+	// can be requested at other RPMs (e.g. 0 before sync) - accept those too
+	EXPECT_CALL(*eth.mockAirmass, getAirmass(_, _))
+		.WillRepeatedly(Return(AirmassResult{0.1008f, 50.0f}));
+	EXPECT_CALL(*eth.mockAirmass, getAirmass(500, _))
+		.WillRepeatedly(Return(AirmassResult{0.1008f, 50.0f}));
+
+	// This is easiest to trip on a wheel that requires sync
+	engineConfiguration->trigger.customTotalToothCount = 6;
+	engineConfiguration->trigger.customSkippedToothCount = 1;
+	eth.setTriggerType(trigger_type_e::TT_TOOTHED_WHEEL);
+    setCamOperationMode();
+	engineConfiguration->isFasterEngineSpinUpEnabled = true;
+
+	setTable(config->injectionPhase, 0.0f);
+	setArrayValues(config->crankingFuelCoef, 1.0f);
+
+
+	engineConfiguration->globalTriggerAngleOffset = 20;
+
+	// Yes, this is a ton of fuel but it makes the repro easier
+	setTable(config->crankingCycleBaseFuel, 213.6);
+	engineConfiguration->cranking.rpm = 501;
+
+	// Test the transition from batch cranking to sequential running
+	engineConfiguration->crankingInjectionMode = IM_BATCH;
+
+	// First sync point will schedule cranking pulse since we're in "faster spin up" mode
+	doRevolution(eth, 240);
+
+	{
+		// Injector 2 should be scheduled to open then close
+		auto inj2 = &engine->injectionEvents.elements[1];
+		auto const taggedPointer{TaggedPointer<decltype(this)>::make(inj2, false)};
+		auto const aHigh{ action_s::make<turnInjectionPinHigh>( taggedPointer.getRaw() ) };
+		auto const aLow{ action_s::make<turnInjectionPinLow>( inj2 ) };
+
+		ASSERT_EQ(engine->scheduler.size(), 2);
+
+		// Check that the action is correct - we don't care about the timing necessarily
+		auto sched_open = engine->scheduler.getForUnitTest(0);
+		ASSERT_EQ(sched_open->action.getArgumentRaw(), taggedPointer.getRaw());
+		ASSERT_EQ(sched_open->action.getCallback(), aHigh.getCallback());
+
+		auto sched_close = engine->scheduler.getForUnitTest(1);
+		// Next action should be closing the same injector
+		ASSERT_EQ(sched_close->action.getArgumentRaw(), taggedPointer.getRaw());
+		ASSERT_EQ(sched_close->action.getCallback(), aLow.getCallback());
+	}
+
+	// Run the engine for some revs
+	for (size_t i = 0; i < 10; i++) {
+		doRevolution(eth, 150);
+	}
+
+	// Check that no injectors are stuck open.
+	// With fast callbacks running while time advances (no NoFastCall hack), fuel is
+	// recomputed continuously across the batch->sequential transition and no injector
+	// overlap is produced - all overlapping counters are zero.
+	EXPECT_EQ(enginePins.injectors[0].getOverlappingCounter(), 0);
+	EXPECT_EQ(enginePins.injectors[1].getOverlappingCounter(), 0);
+	EXPECT_EQ(enginePins.injectors[2].getOverlappingCounter(), 0);
+	EXPECT_EQ(enginePins.injectors[3].getOverlappingCounter(), 0);
+}

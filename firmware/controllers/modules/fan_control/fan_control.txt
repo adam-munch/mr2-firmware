@@ -1,0 +1,16 @@
+struct_no_prefix fan_control_s
+	bit cranking
+	bit notRunning
+	bit disabledWhileEngineStopped;Engine stopped
+	bit brokenClt;Broken CLT
+	bit enabledForAc;Enable for AC
+	bit hot;Above hot threshold
+	bit cold;Below cold threshold
+	bit disabledBySpeed
+	bit m_state;On
+	uint8_t radiatorFanStatus
+	float pwmCurvePwm;PWM from curve
+	float pwmTargetPwm;PWM target
+	float pwmAppliedPwm;PWM applied
+	bit pwmActive;PWM mode active
+end_struct

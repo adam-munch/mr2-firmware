@@ -1,0 +1,43 @@
+name: TS Plugin
+
+on:
+  workflow_dispatch:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Checkout Submodules
+        run: |
+          git submodule update --init --depth=1 java_console/peak-can-basic
+
+          # As of 2025 rusEFI TS plugin is useful again: it provides a knock spectrogram! TS uses java 8 [tag:java8]
+      - uses: ./.github/actions/setup-java
+
+      - name: Test Compiler
+        run: javac -version
+
+      - name: Install Tools
+        run: |
+          sudo bash misc/actions/add-ubuntu-latest-apt-mirrors.sh
+          sudo apt-get install sshpass
+
+      - name: Build TS plugin body
+        working-directory: .
+        run: ./gradlew :ts_plugin:shadowJar
+
+      - name: Upload plugin artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: rusefi_plugin_body.jar
+          path: java_tools/ts_plugin/build/libs/rusefi_plugin_body.jar
+
+      - name: Upload plugin body
+        working-directory: .
+        run: java_console/upload_file.sh ${{ secrets.RUSEFI_SSH_USER }} ${{ secrets.RUSEFI_SSH_PASS }} ${{ secrets.RUSEFI_SSH_SERVER }} build_server/autoupdate java_tools/ts_plugin/build/libs/rusefi_plugin_body.jar
+

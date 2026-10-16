@@ -1,0 +1,23 @@
+apply from: dependenciesPath
+
+dependencies {
+    api project(':ecu_io')
+    implementation global_libs.junit4
+    testImplementation global_libs.mockito
+}
+
+task simulatorFunctionalTestLauncherWithSimulator(type: Exec) {
+    dependsOn build
+    group = "Execution"
+    description = "Run the main class with ExecTask"
+    workingDir = rootProject.projectDir
+    commandLine "java", "-classpath", sourceSets.main.runtimeClasspath.getAsPath(), "com.rusefi.SimulatorFunctionalTestLauncher", "firmware/tunerstudio/generated/rusefi_f407-discovery.ini", "start"
+}
+
+task simulatorFunctionalTestLauncherAssumungSimulatorWasStartedExternally(type: Exec) {
+    dependsOn build
+    group = "Execution"
+    description = "Run the main class with ExecTask"
+    workingDir = rootProject.projectDir
+    commandLine "java", "-classpath", sourceSets.main.runtimeClasspath.getAsPath(), "com.rusefi.SimulatorFunctionalTestLauncher", "firmware/tunerstudio/generated/rusefi_f407-discovery.ini"
+}

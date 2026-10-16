@@ -1,0 +1,30 @@
+/**
+ * @file map.h
+ *
+ * @author Andrey Belomutskiy, (c) 2012-2020
+ */
+
+#pragma once
+
+
+struct air_pressure_sensor_config_s;
+
+void initMapDecoder();
+// see 'useFixedBaroCorrFromMap': latches the start-up MAP reading as barometric pressure
+void updateFixedBaroFromMap();
+
+#define KPA_PER_PSI 6.89475728f
+
+#define PSI2KPA(psi)  (KPA_PER_PSI * (psi))
+
+#define BAR2KPA(bar) (100 * (bar))
+#define KPA2BAR(kpa) (0.01f * (kpa))
+
+#define STD_ATMOSPHERE 101.32500411216164f
+
+// PSI (relative to atmosphere) to kPa (relative to vacuum)
+#define PSI2KPA_RELATIVE(psi)  (STD_ATMOSPHERE + PSI2KPA(psi))
+
+#define INHG2KPA(inhg) ((inhg) * 3.386375f)
+#define KPA2INHG(kpa) ((kpa) / 3.386375f)
+

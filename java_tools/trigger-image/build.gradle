@@ -1,0 +1,8 @@
+
+dependencies {
+  api project(':logging-api')
+}
+
+processResources {
+    from('../../unit_tests/triggers.txt')
+}

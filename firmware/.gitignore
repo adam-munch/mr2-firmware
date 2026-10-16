@@ -1,0 +1,20 @@
+openocd
+benchmark.txt
+gen_*.log
+deliver/
+rusefi_tool.log
+build*
+
+# precompiled headers
+*.h.gch
+*.h.gcno
+
+# tools
+gcc-arm-none-eabi
+arm-gnu*
+
+# bundle temp folder
+rusefi.snapshot.*
+rusefi.ini.7z
+
+quick-self-test.xml

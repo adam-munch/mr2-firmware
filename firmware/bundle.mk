@@ -1,0 +1,423 @@
+# Use SHORT_BOARD_NAME for BUNDLE_NAME if it's empty.
+# BUNDLE_NAME is usually more specific - it points to a variant of a board.
+ifeq (,$(BUNDLE_NAME))
+  BUNDLE_NAME = $(SHORT_BOARD_NAME)
+endif
+
+ifeq (,$(BUNDLE_DATE))
+  BUNDLE_DATE = yymmdd
+endif
+
+ifeq (,$(GITHUB_SHA))
+  GITHUB_SHA = local
+endif
+
+# SIGNATURE_HASH is the same hash that ends up in the generated .ini TS_SIGNATURE
+# (see gen_signature.sh and $(META_OUTPUT_ROOT_FOLDER)controllers/generated/signature_$(SHORT_BOARD_NAME).h).
+# It uniquely identifies the calibration layout of this firmware build, while
+# GITHUB_SHA identifies the source commit. Including both in the .srec filename
+# lets the autoupdater/console pair an update artifact with the exact .ini it
+# was built against, even when GITHUB_SHA is "local" or duplicated across builds.
+SIGNATURE_HASH_FILE = $(META_OUTPUT_ROOT_FOLDER)controllers/generated/signature_$(SHORT_BOARD_NAME).h
+SIGNATURE_HASH = $(shell awk '/define[ \t]+SIGNATURE_HASH/ {print $$3}' $(SIGNATURE_HASH_FILE) 2>/dev/null)
+ifeq (,$(SIGNATURE_HASH))
+  SIGNATURE_HASH = nohash
+endif
+
+# If we're running on Windows, we need to call the .exe of hex2dfu
+ifeq ($(UNAME_S),)
+	UNAME_S = $(shell uname -s)
+endif
+
+# *** KLUDGE ***: we do not include DFU files into bundle but we require DFU for checksum manipulations
+ifneq (,$(findstring NT,$(UNAME_S)))
+	H2D = ../misc/encedo_hex2dfu/hex2dfu.exe
+else
+	H2D = ../misc/encedo_hex2dfu/hex2dfu.bin
+endif
+
+# DFU and DBIN are uploaded as artifacts, so it's easier to have them in the deliver/ directory
+#  than to try uploading them from the rusefi.snapshot.<BUNDLE_NAME> directory
+DFU = $(DELIVER)/$(PROJECT).dfu
+DBIN = $(DELIVER)/$(PROJECT).bin
+DBIN_CRC = $(BUILDDIR)/$(PROJECT)_crc32.bin
+# .bin name mirroring SREC_TARGET below
+BIN_TARGET = $(FOLDER)/rusefi_$(BRANCH_REF_FOR_BUNDLE)_$(BUNDLE_DATE)_$(BUNDLE_NAME)_$(SIGNATURE_HASH)_$(GITHUB_SHA).bin
+
+ifeq (,$(WHITE_LABEL))
+	WHITE_LABEL = rusefi
+endif
+
+# If provided with a git reference and the LTS flag, use a folder name including the ref
+# This weird if statement structure is because Make doesn't have &&
+ifeq ($(AUTOMATION_LTS),true)
+ifneq (,$(AUTOMATION_REF))
+  BRANCH_PART_OF_FOLDER=$(AUTOMATION_REF)
+  BRANCH_REF_FOR_BUNDLE=$(AUTOMATION_REF)
+else
+  BRANCH_PART_OF_FOLDER=lts_unknown
+  BRANCH_REF_FOR_BUNDLE=lts_unknown
+endif
+else
+  # todo: (as long as not Windows linux?) invoke bin/find_branch_name_or_snapshot.sh instead?
+  BRANCH_PART_OF_FOLDER=snapshot
+  BRANCH_REF_FOR_BUNDLE=development
+endif
+
+# todo: replace all usages of $(FOLDER) with $(STAGING_FOLDER) just to make code search simpler
+FOLDER         = rusefi.$(BRANCH_PART_OF_FOLDER).$(BUNDLE_NAME)
+STAGING_FOLDER = rusefi.$(BRANCH_PART_OF_FOLDER).$(BUNDLE_NAME)
+
+BRANCH_REF_FILE = $(STAGING_FOLDER)/release.txt
+
+DELIVER = deliver
+ARTIFACTS = ../artifacts
+
+BUNDLE_FULL_NAME = rusefi_bundle_$(BUNDLE_NAME)
+WHITE_LABEL_BUNDLE_NAME = $(WHITE_LABEL)_bundle_$(BUNDLE_NAME)
+
+CONSOLE_FOLDER = $(FOLDER)/console
+DRIVERS_FOLDER = $(FOLDER)/drivers
+BIN_FOLDER = $(FOLDER)/bin
+DEVICE_BIN_FOLDER = $(FOLDER)/bin/device
+
+UPDATE_FOLDER_SOURCES = \
+  $(RUSEFI_CONSOLE_SETTINGS) \
+  $(INI_FILE) \
+  ../misc/console_launcher/readme.html
+
+FOLDER_SOURCES =
+
+# Custom board builds don't include the simulator
+ifneq ($(BUNDLE_SIMULATOR),false)
+  SIMULATOR_EXE = ../simulator/build/rusefi_simulator.exe
+endif
+
+UPDATE_CONSOLE_FOLDER_SOURCES = \
+  $(CONSOLE_JAR) \
+  $(BRANCH_REF_FILE) \
+  $(TS_PLUGIN_LAUNCHER_JAR)
+
+# PCAN support is optional and excluded by default.
+# The .dll pair is PEAK's Windows driver binding; libpcanbasic_jni.dylib is the
+# macOS JNI bridge onto MacCAN's libPCBUSB (source: misc/pcanbasic_jni_macos).
+# The bundle is OS-agnostic, so both ship side by side next to rusefi_console.jar;
+# rusefi_updater.sh adds that folder to java.library.path.
+ifeq ($(BUNDLE_PCAN),yes)
+  UPDATE_CONSOLE_FOLDER_SOURCES += \
+    ../java_console/PCANBasic.dll \
+    ../java_console/PCANBasic_JNI.dll \
+    ../java_console/libpcanbasic_jni.dylib
+endif
+
+# Launchers live at the bundle root; they delegate to console/rusefi_console.jar
+ROOT_FOLDER_SOURCES = \
+  ../misc/console_launcher/rusefi_updater.exe \
+  ../misc/console_launcher/rusefi_updater.sh
+
+# todo: remove BootCommander.exe once https://github.com/rusefi/rusefi/issues/6358 is done
+
+CONSOLE_FOLDER_SOURCES = \
+  $(SIMULATOR_EXE)
+
+#  $(wildcard ../java_console/*.dll) \
+
+
+#   ../firmware/ext/openblt/Host/libopenblt.dll \
+#   ../firmware/ext/openblt/Host/BootCommander.exe \
+#   ../firmware/ext/openblt/Host/libopenblt.so \
+#   ../firmware/ext/openblt/Host/libopenblt.dylib \
+#   ../firmware/ext/openblt/Host/openblt_jni.dll \
+#   ../firmware/ext/openblt/Host/libopenblt_jni.so \
+#   ../firmware/ext/openblt/Host/libopenblt_jni.dylib \
+
+
+# yes, this one is inverted
+ifneq ($(DO_NOT_BUNDLE_STM32_PROG),yes)
+  CONSOLE_FOLDER_SOURCES += ../misc/install/STM32_Programmer_CLI
+endif
+
+ifeq ($(BUNDLE_OPENOCD),yes)
+  CONSOLE_FOLDER_SOURCES += ../misc/install/openocd
+endif
+
+BOOTLOADER_BIN = bootloader/blbuild/openblt_$(PROJECT_BOARD).bin
+BOOTLOADER_HEX = bootloader/blbuild/openblt_$(PROJECT_BOARD).hex
+
+# Both OpenBLT and custom addressed images carry the same build metadata.
+SREC_NAME = rusefi_$(BRANCH_REF_FOR_BUNDLE)_$(BUNDLE_DATE)_$(BUNDLE_NAME)_$(SIGNATURE_HASH)_$(GITHUB_SHA)_update.srec
+
+# We need to put different things in the bundle depending on some meta-info flags
+ifeq ($(USE_OPENBLT),yes)
+  BOOTLOADER_HEX_OUT = $(BOOTLOADER_HEX)
+  BOOTLOADER_BIN_OUT = $(DEVICE_BIN_FOLDER)/openblt_$(BRANCH_REF_FOR_BUNDLE)_$(BUNDLE_DATE)_$(BUNDLE_NAME)_$(SIGNATURE_HASH)_$(GITHUB_SHA).bin
+  SREC_TARGET = $(FOLDER)/$(SREC_NAME)
+ifneq (,$(OPENBLT_WIPE_FLASH_END_EXCLUSIVE))
+  OPENBLT_WIPE_FOLDER = $(BIN_FOLDER)/wipe
+  OPENBLT_WIPE_SREC = $(OPENBLT_WIPE_FOLDER)/rusefi_$(BRANCH_REF_FOR_BUNDLE)_$(BUNDLE_DATE)_$(BUNDLE_NAME)_$(SIGNATURE_HASH)_$(GITHUB_SHA)_wipe.srec
+  OPENBLT_WIPE_MANIFEST = $(OPENBLT_WIPE_FOLDER)/openblt_wipe.properties
+  OPENBLT_WIPE_OUTPUTS = $(OPENBLT_WIPE_SREC) $(OPENBLT_WIPE_MANIFEST)
+  OPENBLT_WIPE_SENTINEL = .openblt-wipe-$(BUNDLE_NAME)-sentinel
+endif
+else
+  FIRMWARE_OUTPUTS = $(FOLDER)/$(PROJECT).hex
+  BINSRC = $(BUILDDIR)/$(PROJECT).bin
+endif
+
+ifneq ($(BOARD_IMAGE_SCRIPT),)
+  BIN_TARGET =
+  BINSRC =
+  SREC_TARGET = $(FOLDER)/$(SREC_NAME)
+  # Keep the console launchers: they start the JAR, including board-specific UI.
+  # Generic flashing tools are excluded from FULL_BUNDLE_CONTENT below.
+  UPDATE_FOLDER_SOURCES += $(BOARD_IMAGE_README)
+  # Reject even when a stale binary/DFU from an earlier build still exists.
+.PHONY: reject-unaddressed-image
+$(DBIN) $(DFU) $(BUILDDIR)/$(PROJECT).bin: reject-unaddressed-image
+reject-unaddressed-image:
+	$(error This board requires addressed HEX/SREC images; raw binary and generic DFU flashing are disabled)
+endif
+
+# we need these files for crash investigations
+ifeq ($(INCLUDE_ELF),yes)
+  FIRMWARE_OUTPUTS += $(FOLDER)/$(PROJECT).elf $(FOLDER)/$(PROJECT).map $(FOLDER)/$(PROJECT).list
+endif
+
+ST_DRIVERS = $(DRIVERS_FOLDER)/silent_st_drivers2.exe
+
+# We're kinda doing things backwards from the normal Make way.
+# We're listing some files we want to get copied from the bundle,
+# and these commands turn them into their destination path within the bundle.
+UPDATE_FOLDER_TARGETS = $(addprefix $(FOLDER)/,$(notdir $(UPDATE_FOLDER_SOURCES)))
+UPDATE_CONSOLE_FOLDER_TARGETS = $(addprefix $(CONSOLE_FOLDER)/,$(notdir $(UPDATE_CONSOLE_FOLDER_SOURCES)))
+
+MOST_COMMON_BUNDLE_FILES = \
+  $(UPDATE_FOLDER_TARGETS) \
+  $(UPDATE_CONSOLE_FOLDER_TARGETS)
+
+UPDATE_BUNDLE_FILES = \
+  $(FIRMWARE_OUTPUTS) \
+  $(BOOTLOADER_BIN_OUT) \
+  $(BIN_TARGET) \
+  $(SREC_TARGET) \
+  $(MOST_COMMON_BUNDLE_FILES)
+
+FOLDER_TARGETS = $(addprefix $(FOLDER)/,$(notdir $(FOLDER_SOURCES)))
+ROOT_FOLDER_TARGETS = $(addprefix $(FOLDER)/,$(notdir $(ROOT_FOLDER_SOURCES)))
+CONSOLE_FOLDER_TARGETS = $(addprefix $(CONSOLE_FOLDER)/,$(notdir $(CONSOLE_FOLDER_SOURCES)))
+
+FULL_BUNDLE_CONTENT = \
+  $(ST_DRIVERS) \
+  $(BIN_FOLDER) \
+  $(ROOT_FOLDER_TARGETS) \
+  $(CONSOLE_FOLDER_TARGETS)
+
+ifneq ($(BOARD_IMAGE_SCRIPT),)
+FULL_BUNDLE_CONTENT = $(ROOT_FOLDER_TARGETS) $(CONSOLE_FOLDER_TARGETS)
+endif
+
+BUNDLE_FILES = \
+  $(UPDATE_BUNDLE_FILES) \
+  $(FULL_BUNDLE_CONTENT)
+
+$(SIMULATOR_EXE): $(CONFIG_FILES) $(DOCS_ENUMS) .FORCE
+	$(MAKE) -C ../simulator -r OS="Windows_NT" SUBMAKE=yes TS_PAGE_GUARD_DEFS="$(TS_PAGE_GUARD_DEFS)"
+
+# make sure not to invoke in parallel with SIMULATOR_EXE rule above
+../simulator/build/rusefi_simulator.linux: $(CONFIG_FILES) $(DOCS_ENUMS) .FORCE
+	$(MAKE) -C ../simulator -r OS="Linux" SUBMAKE=yes TS_PAGE_GUARD_DEFS="$(TS_PAGE_GUARD_DEFS)"
+
+# make Windows simulator a prerequisite so that we don't try compiling them concurrently
+# that also means no incremental compilation making that rule less useful. See 'rusefi_simulator.linux' above
+../simulator/build/rusefi_simulator.both: $(CONFIG_FILES) $(DOCS_ENUMS) .FORCE | $(SIMULATOR_EXE)
+	$(MAKE) -C ../simulator -r OS="Linux" SUBMAKE=yes TS_PAGE_GUARD_DEFS="$(TS_PAGE_GUARD_DEFS)"
+
+$(BOOTLOADER_HEX) $(BOOTLOADER_BIN): .bootloader-sentinel ;
+
+# We pass SUBMAKE=yes to the bootloader Make instance so it knows not to try to build configs,
+#  as that would result in two simultaneous config generations, which causes issues.
+.bootloader-sentinel: $(CONFIG_FILES) .FORCE
+ifneq ($(BOARD_IMAGE_SCRIPT),)
+	$(error This board preserves its resident bootloader; building a replacement is disabled)
+else
+	BOARD_DIR=../$(BOARD_DIR) BOARD_META_PATH=../$(BOARD_META_PATH) SHORT_BOARD_NAME=$(SHORT_BOARD_NAME) TGT_SENTINEL=../$(TGT_SENTINEL) WHITE_LABEL=$(WHITE_LABEL) $(MAKE) -C bootloader -r SUBMAKE=yes TS_PAGE_GUARD_DEFS="$(TS_PAGE_GUARD_DEFS)"
+	@touch $@
+endif
+
+$(BUILDDIR)/$(PROJECT).map: $(BUILDDIR)/$(PROJECT).elf
+
+$(SREC_TARGET): $(BUILDDIR)/rusefi.srec | $(FOLDER)
+	ln -rfs $< $@
+
+$(FIRMWARE_OUTPUTS): $(FOLDER)/%: $(BUILDDIR)/% | $(FOLDER)
+	ln -rfs $< $@
+
+# Forced and self-sufficient: the $(BIN_FOLDER) recipe rm -rf's bin/ on every run,
+# which make cannot see (it caches stats and assumes recipes only touch their own
+# target). A cached "exists" for the dir or the symlink would otherwise skip this
+# rule, so re-create both unconditionally after the wipe.
+$(BOOTLOADER_BIN_OUT): $(BOOTLOADER_BIN) .FORCE | $(BIN_FOLDER)
+	mkdir -p $(dir $@)
+	ln -rfs $< $@
+
+$(FOLDER)/$(PROJECT).dfu: $(FOLDER)/%: $(DELIVER)/% | $(FOLDER)
+	ln -rfs $< $@
+
+# The bundled .bin gets a unique name (BIN_TARGET) so it can't be mismatched to the
+# wrong board; it still links to the plain deliver/ .bin ($(DBIN)).
+ifneq ($(BIN_TARGET),)
+$(BIN_TARGET): $(DBIN) | $(FOLDER)
+	ln -rfs $< $@
+endif
+
+HEX_BASE_ADDRESS = $(shell $(OD) -h -j .vectors $(BUILDDIR)/$(PROJECT).elf | awk '/.vectors/ {print $$5 }')
+# Fail during recipe expansion before hex2dfu runs if objdump returned no usable
+# 32-bit address. Shell arithmetic avoids a bc dependency on Windows/Cygwin.
+CHECKSUM_ADDRESS = $(or $(shell \
+    base='$(HEX_BASE_ADDRESS)'; \
+    printf '%s\n' "$$base" | LC_ALL=C grep -Eq '^[0-9a-fA-F]{1,8}$$' || exit 1; \
+    checksum=$$((0x$$base + 0x1C)); \
+    [ "$$checksum" -le 4294967295 ] || exit 1; \
+    printf '0x%X' "$$checksum"),$(error Invalid .vectors base address '$(HEX_BASE_ADDRESS)' for checksum))
+
+ifneq ($(BOARD_IMAGE_SCRIPT),)
+$(BUILDDIR)/rusefi.srec: $(BUILDDIR)/$(PROJECT).elf
+	$(PYTHON) $(BOARD_IMAGE_SCRIPT) --format srec $< $@
+else
+$(BUILDDIR)/rusefi.srec: $(BUILDDIR)/$(PROJECT).hex
+	# make sure we create the srec from a binary with crc
+	$(H2D) -i $< -c $(CHECKSUM_ADDRESS) -b $(DBIN_CRC)
+	$(CP) -I binary -O srec --change-addresses=0x$(HEX_BASE_ADDRESS) $(DBIN_CRC) $@
+endif
+
+ifneq (,$(OPENBLT_WIPE_OUTPUTS))
+$(OPENBLT_WIPE_OUTPUTS): $(OPENBLT_WIPE_SENTINEL) ;
+
+$(OPENBLT_WIPE_SENTINEL): $(BUILDDIR)/$(PROJECT).elf $(OPENBLT_WIPE_GENERATOR_JAR) .FORCE | $(BIN_FOLDER)
+	java -jar $(OPENBLT_WIPE_GENERATOR_JAR) \
+		--output $(OPENBLT_WIPE_SREC) \
+		--manifest $(OPENBLT_WIPE_MANIFEST) \
+		--start 0x$(HEX_BASE_ADDRESS) \
+		--end-exclusive $(OPENBLT_WIPE_FLASH_END_EXCLUSIVE) \
+		--bundle-target $(BUNDLE_NAME) \
+		--bootloader-target $(SHORT_BOARD_NAME) \
+		--mcu-family $(PROJECT_CPU)
+	@touch $@
+endif
+
+# The DFU is currently not included in the bundle, so these prerequisites are listed as order-only to avoid building it.
+# If you want it, you can build it with `make rusefi.snapshot.$BUNDLE_NAME/rusefi.dfu`
+$(DFU) $(DBIN): .h2d-sentinel ;
+
+.h2d-sentinel: $(BUILDDIR)/$(PROJECT).hex $(BOOTLOADER_HEX_OUT) $(BINSRC) | $(DELIVER)
+ifneq ($(BOARD_IMAGE_SCRIPT),)
+	$(error This board requires addressed HEX/SREC images; raw binary and generic DFU flashing are disabled)
+else
+ifeq ($(USE_OPENBLT),yes)
+	$(H2D) -i $(BOOTLOADER_HEX) -i $(BUILDDIR)/$(PROJECT).hex -c $(CHECKSUM_ADDRESS) -o $(DFU) -b $(DBIN)
+	# TODO: handle .dfu file which is only used by Linux consumers!
+	bin/set_bl_bin_version.sh $(DBIN)
+else
+	$(H2D) -i $(BUILDDIR)/$(PROJECT).hex -c $(CHECKSUM_ADDRESS) -o $(DFU)
+	cp $(BUILDDIR)/$(PROJECT).bin $(DBIN)
+endif
+	@touch $@
+endif
+
+OBFUSCATED_SREC = $(FOLDER)/rusefi-$(BRANCH_REF_FOR_BUNDLE)_$(BUNDLE_DATE)_$(BUNDLE_NAME)_$(SIGNATURE_HASH)_$(GITHUB_SHA)_obfuscated.srec
+
+OBFUSCATED_OUT = \
+  $(FOLDER)/rusefi-obfuscated.bin \
+  $(OBFUSCATED_SREC)
+
+$(OBFUSCATED_OUT): .obfuscated-sentinel
+
+.obfuscated-sentinel: $(BUILDDIR)/$(PROJECT).bin
+	[ -z "$(POST_BUILD_SCRIPT)" ] || echo "Invoking POST_BUILD_SCRIPT $(POST_BUILD_SCRIPT)"
+	[ ! -z "$(POST_BUILD_SCRIPT)" ] || echo "Not Invoking POST_BUILD_SCRIPT"
+	[ -z "$(POST_BUILD_SCRIPT)" ] || bash $(POST_BUILD_SCRIPT) $(BUILDDIR)/$(PROJECT).bin $(OBFUSCATED_OUT)
+	@touch $@
+
+$(ST_DRIVERS): | $(DRIVERS_FOLDER)
+	cp ext/rusefi-gha/static-content/silent_st_drivers2.exe $(DRIVERS_FOLDER)
+
+$(DELIVER) $(ARTIFACTS) $(STAGING_FOLDER) $(CONSOLE_FOLDER) $(DRIVERS_FOLDER):
+	mkdir -p $@
+
+# The rm -rf clears stale content (bundled names embed date/sha), but it also
+# deletes other rules' outputs staged under bin/ - something make's model does not
+# allow for (stat caching assumes recipes only touch their own target). Any rule
+# placing a file under bin/ must therefore be .FORCE'd, order itself after this
+# rule with "| $(BIN_FOLDER)", and mkdir -p its own subdirectory in its recipe
+# (see $(BOOTLOADER_BIN_OUT)); a plain directory target for a subdir of bin/ gets
+# silently skipped on incremental builds.
+$(BIN_FOLDER): .FORCE | $(FOLDER)
+	rm -rf $@
+	mkdir -p $@
+	find ../java_console/bin -maxdepth 1 -mindepth 1 | xargs -I{} ln -rfs {} $@/
+
+$(BRANCH_REF_FILE):
+	cp $(PROJECT_DIR)/../release.txt $(BRANCH_REF_FILE)
+	echo "platform=$(BUNDLE_NAME)" >> $(BRANCH_REF_FILE) ; echo "release=$(BRANCH_REF_FOR_BUNDLE)" >> $(BRANCH_REF_FILE)
+
+# Check even an existing INI before packaging it. The generator also runs this
+# validator, but custom generators and cached files must pass the same gate.
+# Keep this phony check a normal ZIP prerequisite: renamed staging symlinks
+# can point to older firmware, but the archive must still get the current names.
+.PHONY: validate-bundle-ini
+validate-bundle-ini: $(INI_FILE) $(CONFIG_DEFINITION_JAR)
+	java -cp "$(CONFIG_DEFINITION_JAR)" com.rusefi.output.GeneratedIniValidator "$(INI_FILE)"
+
+$(ARTIFACTS)/$(WHITE_LABEL_BUNDLE_NAME).zip: $(BUNDLE_FILES) $(OPENBLT_WIPE_OUTPUTS) validate-bundle-ini | $(ARTIFACTS)
+	rm -f $@
+	zip -r $@ $(BUNDLE_FILES)
+	[ -z "$(POST_ZIP_SCRIPT)" ] || bash $(POST_ZIP_SCRIPT)
+
+$(ARTIFACTS)/$(WHITE_LABEL_BUNDLE_NAME)_obfuscated_public.zip:  $(OBFUSCATED_OUT) $(BUNDLE_FILES) $(OPENBLT_WIPE_OUTPUTS) validate-bundle-ini | $(ARTIFACTS)
+	rm -f $@
+	zip -r $@ $(FULL_BUNDLE_CONTENT) $(MOST_COMMON_BUNDLE_FILES) $(OBFUSCATED_SREC)
+	[ -z "$(POST_O_ZIP_SCRIPT)" ] || bash $(POST_O_ZIP_SCRIPT)
+
+# The autoupdate zip doesn't have a folder with the bundle contents
+$(ARTIFACTS)/$(WHITE_LABEL_BUNDLE_NAME)_autoupdate.zip: $(UPDATE_BUNDLE_FILES) validate-bundle-ini | $(ARTIFACTS)
+	rm -f $@
+	cd $(FOLDER) &&	zip -r ../$@ $(subst $(FOLDER)/,,$(UPDATE_BUNDLE_FILES))
+
+$(ARTIFACTS)/$(WHITE_LABEL_BUNDLE_NAME)_obfuscated_public_autoupdate.zip:  $(OBFUSCATED_OUT) $(BUNDLE_FILES) validate-bundle-ini | $(ARTIFACTS)
+	cd $(FOLDER) &&	zip -r ../$@ $(subst $(FOLDER)/,,$(MOST_COMMON_BUNDLE_FILES)) $(subst $(FOLDER)/,,$(OBFUSCATED_SREC))
+
+.PHONY: bundle build_both_bundles autoupdate obfuscated bin hex dfu map elf list srec bootloader
+
+bundle: $(ARTIFACTS)/$(WHITE_LABEL_BUNDLE_NAME).zip
+autoupdate: $(ARTIFACTS)/$(WHITE_LABEL_BUNDLE_NAME)_autoupdate.zip
+obfuscated: $(ARTIFACTS)/$(WHITE_LABEL_BUNDLE_NAME)_obfuscated_public.zip $(ARTIFACTS)/$(WHITE_LABEL_BUNDLE_NAME)_obfuscated_public_autoupdate.zip
+build_both_bundles: bundle autoupdate
+
+bootloader: $(BOOTLOADER_BIN)
+
+bin: $(DBIN)
+hex: $(BUILDDIR)/$(PROJECT).hex
+dfu: $(DFU)
+srec: $(BUILDDIR)/rusefi.srec
+elf: $(BUILDDIR)/$(PROJECT).elf
+map: $(BUILDDIR)/$(PROJECT).map
+list: $(BUILDDIR)/$(PROJECT).list
+
+CLEAN_BUNDLE_HOOK:
+	@echo Cleaning Bundle
+	$(MAKE) -C ../simulator clean
+	BOARD_DIR=../$(BOARD_DIR) BOARD_META_PATH=../$(BOARD_META_PATH) $(MAKE) -C bootloader clean
+	rm -rf $(FOLDER)
+	rm -rf $(DELIVER)
+	rm -f .*-sentinel
+	@echo Done Cleaning Bundle
+
+# We need to use secondary expansion on these rules to find the target file in the source file list.
+PERCENT = %
+
+.SECONDEXPANSION:
+$(FOLDER_TARGETS) $(UPDATE_FOLDER_TARGETS) $(ROOT_FOLDER_TARGETS): $(FOLDER)/%: $$(filter $$(PERCENT)$$*,$(FOLDER_SOURCES) $(UPDATE_FOLDER_SOURCES) $(ROOT_FOLDER_SOURCES)) | $(FOLDER)
+	ln -rfs $< $@
+
+$(CONSOLE_FOLDER_TARGETS) $(UPDATE_CONSOLE_FOLDER_TARGETS): $(CONSOLE_FOLDER)/%: $$(filter $$(PERCENT)$$*,$(CONSOLE_FOLDER_SOURCES) $(UPDATE_CONSOLE_FOLDER_SOURCES)) | $(CONSOLE_FOLDER)
+	ln -rfs $< $@

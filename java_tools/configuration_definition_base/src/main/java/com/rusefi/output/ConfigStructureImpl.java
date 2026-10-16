@@ -1,0 +1,329 @@
+package com.rusefi.output;
+
+import com.rusefi.*;
+import com.rusefi.parse.TypesHelper;
+
+import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import static com.rusefi.ConfigFieldImpl.BOOLEAN_T;
+import static com.rusefi.ConfigFieldImpl.VOID_BIT;
+
+/**
+ * Mutable representation of a list of related {@link ConfigFieldImpl}
+ * <p>
+ * Andrey Belomutskiy, (c) 2013-2020
+ * 1/15/15
+ */
+public class ConfigStructureImpl implements ConfigStructure {
+    public static final String ALIGNMENT_FILL_AT = "alignmentFill_at_";
+    public static final String UNUSED_BIT_PREFIX = "unusedBit_";
+
+    private final String name;
+    private final String comment;
+    private final boolean withPrefix;
+    private final ConfigStructure parent;
+    private final List<ConfigField> cFields = new ArrayList<>();
+    private final List<ConfigField> tsFields = new ArrayList<>();
+
+    private final Map<String, ConfigField> tsFieldsMap = new TreeMap<>();
+
+    private final Map</*type name*/String, ConfigField> currentInstance = new TreeMap<>();
+
+    private int totalSize;
+
+    private final BitState readingBitState = new BitState();
+
+    private ConfigField cPrevField = ConfigFieldImpl.VOID;
+    private final Set<String> names = new HashSet<>();
+
+    private List<String> templateParameters = new ArrayList<>();
+    private boolean isTemplateInstance;
+    private String templateBaseName;
+    private final List<String> rawFieldLines = new ArrayList<>();
+
+    public ConfigStructureImpl(String name, String comment, boolean withPrefix, ConfigStructure parent) {
+        this(name, comment, withPrefix, parent, Collections.emptyList());
+    }
+
+    public ConfigStructureImpl(String name, String comment, boolean withPrefix, ConfigStructure parent, List<String> templateParameters) {
+        this.name = name;
+        this.comment = comment;
+        this.withPrefix = withPrefix;
+        this.parent = parent;
+        this.templateParameters = new ArrayList<>(templateParameters);
+    }
+
+    public ConfigStructureImpl instantiate(String instanceName, Map<String, String> templateArgs, ReaderStateImpl state) {
+        ConfigStructureImpl instance = new ConfigStructureImpl(instanceName, this.comment, this.withPrefix, this.parent);
+        instance.isTemplateInstance = true;
+        instance.templateBaseName = this.name;
+
+        for (ConfigField field : this.cFields) {
+            ConfigFieldImpl original = (ConfigFieldImpl) field;
+            String substitutedTsInfo = substituteTemplate(original.getTsInfo(), templateArgs);
+            String substitutedComment = substituteTemplate(original.getComment(), templateArgs);
+
+            ConfigFieldImpl substituted = new ConfigFieldImpl(
+                state,
+                original.getName(),
+                substitutedComment,
+                original.getArraySizeVariableName(),
+                original.getTypeName(),
+                original.getArraySizes(),
+                substitutedTsInfo,
+                original.isIterate(),
+                original.isHasAutoscale(),
+                original.getTrueName(),
+                original.getFalseName()
+            );
+            substituted.setBitPositionInWord(original.getBitPositionInWord());
+            instance.cFields.add(substituted);
+            instance.tsFields.add(substituted);
+            instance.tsFieldsMap.put(substituted.getName(), substituted);
+            instance.names.add(substituted.getName());
+        }
+
+        instance.totalSize = this.totalSize;
+        instance.readingBitState.set(this.readingBitState.get());
+
+        return instance;
+    }
+
+    private static String substituteTemplate(String value, Map<String, String> templateArgs) {
+        if (value == null) {
+            return null;
+        }
+        String result = value;
+        for (Map.Entry<String, String> entry : templateArgs.entrySet()) {
+            result = result.replace("__TMPL_" + entry.getKey() + "__", entry.getValue());
+        }
+        return result;
+    }
+
+    public List<String> getTemplateParameters() {
+        return templateParameters;
+    }
+
+    public boolean isTemplate() {
+        return !templateParameters.isEmpty();
+    }
+
+    public boolean isTemplateInstance() {
+        return isTemplateInstance;
+    }
+
+    public String getTemplateBaseName() {
+        return templateBaseName;
+    }
+
+    @Override
+    public Map<String, ConfigField> getCurrentInstance() {
+        return currentInstance;
+    }
+
+    public void addBitField(ConfigFieldImpl bitField) {
+        bitField.setBitPositionInWord(this.readingBitState.get());
+        addBoth(bitField);
+        this.readingBitState.incrementBitIndex(bitField);
+    }
+
+    @Override
+    public ConfigStructure getParent() {
+        return parent;
+    }
+
+    @Override
+    public String getName() {
+        return name;
+    }
+
+    @Override
+    public void addAlignmentFill(ReaderState state, int alignment) {
+        if (alignment == 0)
+            return;
+        /**
+         * we make alignment decision based on C fields since we expect iteration and non-iteration fields
+         * to match in size
+         */
+        FieldIteratorWithOffset iterator = new FieldIteratorWithOffset(cFields) {
+            @Override
+            public void end(int currentPosition) {
+                super.end(currentPosition);
+                currentOffset = adjustSize(currentOffset);
+            }
+        };
+        iterator.loop(0);
+
+        totalSize = iterator.currentOffset;
+        int fillSize = totalSize % alignment == 0 ? 0 : alignment - (totalSize % alignment);
+        if (fillSize > 3)
+            throw new IllegalStateException("Fill size does not look right: " + fillSize);
+
+        if (fillSize != 0) {
+            int[] fillSizeArray;
+            if (fillSize != 1) {
+                fillSizeArray = new int[1];
+                fillSizeArray[0] = fillSize;
+            } else {
+                fillSizeArray = new int[0];
+            }
+            ConfigFieldImpl fill = new ConfigFieldImpl(state, ALIGNMENT_FILL_AT + totalSize, "need 4 byte alignment",
+                    "" + fillSize,
+                    TypesHelper.UINT8_T, fillSizeArray, "\"units\", 1, 0, 0, 100, 0", false, false, null, null);
+            addBoth(fill);
+        }
+        totalSize += fillSize;
+    }
+
+    public void addBoth(ConfigFieldImpl cf) {
+        addC(cf);
+        addTs(cf);
+    }
+
+    public void addC(ConfigFieldImpl cf) {
+        // skip duplicate names - that's the weird use-case of conditional project definition like lambdaTable
+        if (cf.getName().equals(cPrevField.getName()))
+            return;
+
+        boolean isNew = names.add(cf.getName());
+        if (!isNew)
+            throw new IllegalStateException(cf.getName() + " name already used");
+
+        cFields.add(cf);
+
+        cPrevField = cf;
+    }
+
+    public void addTs(ConfigFieldImpl cf) {
+        tsFields.add(cf);
+        tsFieldsMap.put(cf.getName(), cf);
+        currentInstance.put(cf.getTypeName(), cf);
+    }
+
+    @Override
+    public ConfigField getTsFieldByName(String name) {
+        return tsFieldsMap.get(name);
+    }
+
+    @Override
+    public void addBitPadding(ReaderState readerState) {
+        if (readingBitState.get() == 0)
+            return;
+        int sizeAtStartOfPadding = cFields.size();
+        // pad the current 32-bit word to its end; the bit index wraps to 0 exactly at the word boundary
+        while (readingBitState.get() != 0) {
+            ConfigFieldImpl bitField = new ConfigFieldImpl(readerState, UNUSED_BIT_PREFIX + sizeAtStartOfPadding + "_" + readingBitState.get(), "", null, BOOLEAN_T, new int[0], null, false, false, VOID_BIT, VOID_BIT);
+            addBitField(bitField);
+        }
+        readingBitState.reset();
+    }
+
+    @Override
+    public int getTotalSize() {
+        return totalSize;
+    }
+
+    @Override
+    public List<ConfigField> getTsFields() {
+        return tsFields;
+    }
+
+    /**
+     * We have two different collections because if 'array iterate' feature which is handled differently
+     * in C and TS
+     */
+    @Override
+    public List<ConfigField> getcFields() {
+        return cFields;
+    }
+
+    @Override
+    public boolean isWithPrefix() {
+        return withPrefix;
+    }
+
+    @Override
+    public String getComment() {
+        return comment;
+    }
+
+    private static final Pattern EXPRESSION_BLOCK = Pattern.compile("\\{([^}]+)}");
+    private static final Pattern IDENTIFIER = Pattern.compile("\\b([a-zA-Z_][a-zA-Z0-9_]*)\\b");
+    private static final Set<String> KNOWN_FUNCTIONS;
+
+    //TODO: use set.of once we migrate from java 8
+    static {
+        KNOWN_FUNCTIONS = new HashSet<>();
+        KNOWN_FUNCTIONS.add("bitStringValue");
+        KNOWN_FUNCTIONS.add("stringValue");
+        KNOWN_FUNCTIONS.add("getValue");
+    }
+
+    /**
+     * Validates that no field's tsInfo expressions reference fields defined later in the flattened
+     * structure hierarchy. Forward references cause issues because TunerStudio processes fields in order.
+     * This must be called on a top-level struct to be effective.
+     */
+    public void validateNoForwardReferences() {
+        Set<String> allFieldNames = new LinkedHashSet<>();
+        getFlattenedFieldNames(this, allFieldNames);
+
+        // Now iterate in order, checking for forward references
+        Set<String> definedSoFar = new HashSet<>();
+        checkForwardReferences(this, allFieldNames, definedSoFar);
+    }
+
+    private static void getFlattenedFieldNames(ConfigStructure structure, Set<String> allNames) {
+        for (ConfigField field : structure.getTsFields()) {
+            ConfigStructure subStruct = field.getStructureType();
+            if (subStruct != null) {
+                getFlattenedFieldNames(subStruct, allNames);
+            } else {
+                allNames.add(field.getName());
+            }
+        }
+    }
+
+    private static void checkForwardReferences(ConfigStructure structure, Set<String> allFieldNames, Set<String> definedSoFar) {
+        for (ConfigField field : structure.getTsFields()) {
+            ConfigStructure subStruct = field.getStructureType();
+            if (subStruct != null) {
+                checkForwardReferences(subStruct, allFieldNames, definedSoFar);
+                continue;
+            }
+
+            String tsInfo = field.getTsInfo();
+            if (tsInfo != null) {
+                Matcher exprMatcher = EXPRESSION_BLOCK.matcher(tsInfo);
+                while (exprMatcher.find()) {
+                    String expression = exprMatcher.group(1);
+                    Matcher idMatcher = IDENTIFIER.matcher(expression);
+                    while (idMatcher.find()) {
+                        String identifier = idMatcher.group(1);
+                        // TODO: we should check in this case?
+                        if (KNOWN_FUNCTIONS.contains(identifier))
+                            continue;
+                        // used but not yet defined
+                        if (allFieldNames.contains(identifier) && !definedSoFar.contains(identifier)) {
+                            throw new IllegalStateException(
+                                "Field '" + field.getName() + "' references '" + identifier +
+                                "' which is defined later in the structure " +
+                                "Reorder fields in rusefi_config.txt so that '" + identifier +
+                                "' is defined before it is used.");
+                        }
+                    }
+                }
+            }
+            definedSoFar.add(field.getName());
+        }
+    }
+
+    @Override
+    public String toString() {
+        return "ConfigStructureImpl{" +
+                "name='" + name + '\'' +
+                '}';
+    }
+}

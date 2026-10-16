@@ -1,0 +1,38 @@
+
+
+apply from: '../../android/dependencies.gradle'
+
+dependencies {
+  api project(':logging-api')
+  api project(':version')
+  api global_libs.json
+}
+
+java {
+  var boardDir = System.getenv("ABSOLUTE_BOARD_DIR")
+  println("gradle says: ABSOLUTE_BOARD_DIR=" + boardDir)
+  if (boardDir != null) {
+    var customResourcesFolder = boardDir + "/shared_io.resources"
+    if (new File(customResourcesFolder).exists()) {
+      println(customResourcesFolder + " found!")
+      processResources {
+        duplicatesStrategy = DuplicatesStrategy.INCLUDE
+        from(customResourcesFolder)
+      }
+    } else {
+      println(customResourcesFolder + " not found.")
+    }
+  }
+}
+
+// TODO: rename folder to core_io?
+// this CORE module cannot depend on model/ini!
+
+// Downloads/caches source and wiki text; no ECU or ChatGPT account required.
+tasks.register('runFirmwareSourceCodeDownloaderSandbox', JavaExec) {
+  dependsOn testClasses
+  group = 'Execution'
+  description = 'Download and extract the firmware source archive with textual progress'
+  classpath = sourceSets.test.runtimeClasspath
+  mainClass = 'com.rusefi.core.net.FirmwareSourceCodeDownloaderSandbox'
+}

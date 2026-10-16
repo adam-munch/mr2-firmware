@@ -1,0 +1,45 @@
+apply from: '../../android/dependencies.gradle'
+apply from: dependenciesPath
+
+configurations {
+    all*.exclude group: 'org.hamcrest', module: 'hamcrest-core'
+}
+
+tasks.withType(Test) {
+    systemProperty "java.library.path", "../../unit_tests/build"
+}
+
+dependencies {
+    implementation global_libs.javaxJson
+
+    api global_libs.jcip
+
+    api project(':models')
+    api project(':msq-file')
+    api project(':peak-can-basic')
+
+    api group: 'com.fazecast', name: 'jSerialComm', version: '2.11.4'
+    implementation group: 'tel.schich', name: 'javacan-core', version: "$javaCanVersion"
+    implementation group: 'tel.schich', name: 'javacan-core', version: "$javaCanVersion", classifier: 'x86_64'
+    implementation global_libs.json
+    api ts_plugin_libs.httpclient
+    api ts_plugin_libs.httpcore
+
+    testFixturesApi global_libs.mockito
+    testFixturesApi testFixtures(project(':inifile'))
+    testFixturesApi global_libs.annotations
+    testFixturesApi global_libs.junit5api
+}
+
+// Explicitly selected hardware only; never part of the automated test suite.
+tasks.register('slcanConnectorSandbox', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.rusefi.binaryprotocol.test.SLCANConnectorSandbox'
+    if (project.hasProperty('slcanPort')) {
+        args project.property('slcanPort'), project.findProperty('slcanBitrate') ?: '6'
+        if (project.hasProperty('slcanExpectedSignature')) {
+            args project.property('slcanExpectedSignature')
+        }
+    }
+}

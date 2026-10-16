@@ -1,0 +1,75 @@
+#
+# See https://wiki.rusefi.com/Connector-Mapping
+#
+
+name: Generate Interactive Pinouts
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Generate Pinouts
+      uses: chuckwagoncomputing/interactive-pinout@2.18
+      with:
+        mapping-path: firmware/config/boards/*/connectors/*.yaml
+        warnings: "false"
+        warning-no-pins: "skip"
+        warning-dupe: "error"
+        warning-parse: "error"
+        columns: |
+          {
+          "pin":"Pin Number",
+          "ts_name":"TS Name",
+          "type":"Type",
+          "function":"Typical Function",
+          "color":"Pigtail Color"
+          }
+        print-columns: |
+          [
+          "function"
+          ]
+        info-column: "type"
+        templates: |
+          {
+          "___": "pin"
+          }
+        colors: |
+          {
+          "12v":"yellow",
+          "12V":"yellow",
+          "5v":"red",
+          "5V":"red",
+          "at":"green",
+          "av":"brown",
+          "can":"blue",
+          "din":"lime",
+          "etb":"darkcyan",
+          "gnd":"darkgreen",
+          "gp_high":"aqua",
+          "gp_low":"aquamarine",
+          "gp_pp":"cyan",
+          "hall":"darkolivegreen",
+          "high_logic":"gold",
+          "hs":"indigo",
+          "ign":"magenta",
+          "inj":"maroon",
+          "ls":"lightgreen",
+          "mr":"firebrick",
+          "agnd":"olive",
+          "usb":"lightseagreen",
+          "vr":"sienna"
+          }
+
+    - name: Upload Pinouts
+      env:
+        pass: ${{ secrets.RUSEFI_SSH_PASS }}
+      if: ${{ env.pass != '' }}
+      run: tar -czf - pinouts | sshpass -p "${{ secrets.RUSEFI_SSH_PASS }}" ssh -o StrictHostKeyChecking=no "${{ secrets.RUSEFI_SSH_USER }}"@"${{ secrets.RUSEFI_SSH_SERVER }}" "tar -xzf - -C docs"

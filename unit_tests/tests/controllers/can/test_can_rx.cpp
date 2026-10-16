@@ -1,0 +1,126 @@
+#include "pch.h"
+
+#include "can_rx.h"
+#include "can_listener.h"
+#include "openblt/efi_blt_ids.h"
+
+using ::testing::StrictMock;
+using ::testing::_;
+
+class MockCanListener : public CanListener {
+public:
+	MockCanListener(uint32_t id) : CanListener(id) { }
+
+	MOCK_METHOD(void, decodeFrame, (const CANRxFrame& frame, efitick_t nowNt), (override));
+	MOCK_METHOD(bool, acceptFrame, (const size_t busIndex, const CANRxFrame& frame), (const, override));
+};
+
+TEST(CanListener, FrameAccepted) {
+	StrictMock<MockCanListener> dut(0x123);
+
+	CANRxFrame frame;
+
+	// Accept should be called, returns true
+	EXPECT_CALL(dut, acceptFrame(0, _)).WillOnce(Return(true));
+
+	// Because accept returns true, decode is called
+	EXPECT_CALL(dut, decodeFrame(_, 1234));
+
+	dut.processFrame(0, frame, 1234);
+}
+
+TEST(CanListener, FrameNotAccepted) {
+	StrictMock<MockCanListener> dut(0x123);
+
+	CANRxFrame frame;
+
+	// Accept should be called, returns false, so decode not called
+	EXPECT_CALL(dut, acceptFrame(0, _)).WillOnce(Return(false));
+
+	dut.processFrame(0, frame, 1234);
+}
+
+struct CanListenerNoDecode : public CanListener {
+	CanListenerNoDecode(uint32_t id) : CanListener(id) { }
+
+	void decodeFrame(const CANRxFrame& frame, efitick_t nowNt) override { }
+};
+
+TEST(CanListener, FrameAcceptedChecksId) {
+	CanListenerNoDecode dut(0x123);
+
+	CANRxFrame frame;
+
+	frame.SID = 0x123;
+	frame.IDE = false;
+
+	EXPECT_TRUE(dut.acceptFrame(0, frame));
+}
+
+TEST(CanListener, FrameNotAcceptedChecksId) {
+	CanListenerNoDecode dut(0x123);
+
+	CANRxFrame frame;
+
+	frame.SID = 0x456;
+	frame.IDE = false;
+
+	EXPECT_FALSE(dut.acceptFrame(0, frame));
+}
+
+static CANRxFrame makeOpenBltConnectFrame() {
+	CANRxFrame frame = {};
+	frame.IDE = CAN_IDE_EXT;
+	frame.EID = BOOT_COM_CAN_RX_MSG_ID & 0x1FFFFFFFU;
+	frame.DLC = 2;
+	frame.data8[0] = 0xFF;
+	frame.data8[1] = 0x00;
+	return frame;
+}
+
+TEST(OpenBltCanFrame, MatchesExtendedConnect) {
+	auto frame = makeOpenBltConnectFrame();
+
+	EXPECT_TRUE(isOpenBltCanFrame(frame));
+}
+
+TEST(OpenBltCanFrame, RejectsStandardFrame) {
+	auto frame = makeOpenBltConnectFrame();
+	frame.IDE = CAN_IDE_STD;
+	frame.SID = BOOT_COM_CAN_RX_MSG_ID & 0x7FFU;
+
+	EXPECT_FALSE(isOpenBltCanFrame(frame));
+}
+
+TEST(OpenBltCanFrame, RejectsRemoteFrame) {
+	auto frame = makeOpenBltConnectFrame();
+	frame.RTR = CAN_RTR_REMOTE;
+
+	EXPECT_FALSE(isOpenBltCanFrame(frame));
+}
+
+TEST(OpenBltCanFrame, RejectsWrongLength) {
+	auto frame = makeOpenBltConnectFrame();
+	frame.DLC = 1;
+
+	EXPECT_FALSE(isOpenBltCanFrame(frame));
+}
+
+TEST(OpenBltCanFrame, RejectsWrongPayload) {
+	auto frame = makeOpenBltConnectFrame();
+	frame.data8[0] = 0xFE;
+
+	EXPECT_FALSE(isOpenBltCanFrame(frame));
+
+	frame = makeOpenBltConnectFrame();
+	frame.data8[1] = 0x01;
+
+	EXPECT_FALSE(isOpenBltCanFrame(frame));
+}
+
+TEST(OpenBltCanFrame, RejectsWrongId) {
+	auto frame = makeOpenBltConnectFrame();
+	frame.EID++;
+
+	EXPECT_FALSE(isOpenBltCanFrame(frame));
+}

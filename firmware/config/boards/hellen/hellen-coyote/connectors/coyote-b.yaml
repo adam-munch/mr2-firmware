@@ -1,0 +1,493 @@
+pins:
+
+  - pin: B1
+    function: Injector 1
+    type: inj
+  - pin: B2
+    function: Injector 5
+    type: inj
+  - pin: B3
+    function: Injector 4
+    type: inj
+  - pin: B4
+    function: "VVT Solenoid 2"
+    type: ls
+  - pin: B5
+    function: "VVT Solenoid 1"
+    type: ls
+  - pin: B6
+    function: "VVT Solenoid 4"
+    type: ls
+  - pin: B7
+    function: "VVT Solenoid 3"
+    type: ls
+  - pin: B8
+    function: "5V Sensor Supply (TPS)"
+    type: 5v
+  - pin: B9
+    function: "Universal analog input. Suggested TPS 2 sensor input"
+    type: av
+  - pin: B10
+    function: "Universal analog input. Suggested TPS 1 sensor input"
+    type: av
+
+  - pin: B11
+    function: Exhaust cutout Muffler Control Solenoid
+    type: ls
+
+  - pin: B14
+    function: TorqueConverterClutch TCU (bypass for TCU molex)
+  - pin: B15
+    function: LinePressureControl TCU (bypass for TCU molex)
+  - pin: B16
+    function: Injector 8
+    type: inj
+  - pin: B17
+    function: "Buffered Sensor Power Supply (VPWR_cam; share and pass for TCU molex)"
+  - pin: B18
+    function: "Fused Power Supply (VPWR F)"
+    type: 12v
+  - pin: B22
+    function: "GNDA Analog/Sensor Ground (transmission signal return)"
+    type: agnd
+  - pin: B23
+    function: "GNDA Analog/Sensor Ground (TPS)"
+    type: agnd
+  - pin: B24
+    function: Trans Fluid Temp TCU (bypass for TCU molex)
+  - pin: B25
+    function: TransmissionShaftSpeed TCU (bypass for TCU molex)
+  - pin: B26
+    function: Output Shaft Speed (VSS, digital input + pass for TCU molex)
+  - pin: B27
+    function: IAT Sensor Input
+    type: at
+  - pin: B30
+    function: Oil Level Switch
+  - pin: B31
+    function: "Injector 6 (5.0L; 5.2L assignment differs)"
+    type: inj
+  - pin: B34
+    function: "5V Sensor Supply (engine sensors)"
+    type: 5v
+  - pin: B37
+    function: TR-P TRANSMISSION RANGE PWM TCU (bypass for TCU molex)
+  - pin: B39
+    function: Crank Shield
+  - pin: B40
+    function: "Camshaft Position Sensor Bank 2 VR Negative"
+    type: vr
+  - pin: B41
+    function: "Camshaft Position Sensor Bank 2 VR Positive"
+    type: vr
+  - pin: B42
+    function: "Camshaft Position Sensor Bank 2 Exhaust Signal"
+  - pin: B44
+    function: "Intake Manifold Monitor"
+    type: av
+  - pin: B45
+    function: "Intake Port Deactivation Valve Position"
+    type: av
+  - pin: B46
+    function: "Injector 3 (5.0L; 5.2L assignment differs)"
+    type: inj
+  - pin: B47
+    function: "Cylinder Head Temperature Sensor Input (CHT)"
+    type: at
+  - pin: B48
+    function: UNUSED Oil Pressure Switch
+  - pin: B49
+    function: "GNDA Analog/Sensor Ground (engine signal return)"
+    type: agnd
+  - pin: B52
+    function: Knock1 Neg
+  - pin: B53
+    function: Knock1 Pos
+  - pin: B54
+    function: "Camshaft Position Sensor Bank 1 VR Negative"
+    type: vr
+  - pin: B55
+    function: "Camshaft Position Sensor Bank 1 VR Positive"
+    type: vr
+  - pin: B56
+    function: "Camshaft Position Sensor Bank 1 Exhaust Signal (Cam11 Hall)"
+    type: hall
+  - pin: B57
+    function: Engine Oil Pressure Signal
+  - pin: B59
+    function: "IMRC2 Control Solenoid (Intake Manifold Runner Control; alternate reference: Manifold Heater)"
+  - pin: B60
+    function: "Intake Manifold Tuning Valve (5.0L RHD); Valve Monitor (alternate reference assignment)"
+  - pin: B61
+    function: "Injector 7 (5.0L; 5.2L assignment differs)"
+    type: inj
+  - pin: B62
+    function: "Injector 2 (5.0L; 5.2L assignment differs)"
+    type: inj
+  - pin: B67
+    function: Knock2 Neg
+  - pin: B68
+    function: Knock2 Pos
+  - pin: B69
+    function: "Crankshaft Position Sensor Negative"
+    type: vr
+  - pin: B70
+    function: "Crankshaft Position Sensor Positive"
+    type: vr
+  - pin: B71
+    function: Canister Purge
+  - pin: B72
+    function: SSD TCU (bypass for TCU molex)
+  - pin: B73
+    function: SSC TCU (bypass for TCU molex)
+  - pin: B74
+    function: SSB TCU (bypass for TCU molex)
+  - pin: B75
+    function: SSA TCU (bypass for TCU molex)
+  - pin: B77
+    function: SSE TCU (bypass for TCU molex)
+  - pin: B81
+    function: "Electronic Throttle Motor Negative"
+    type: etb
+  - pin: B82
+    function: "Electronic Throttle Motor Positive"
+    type: etb
+  - pin: B87
+    function: "Ignition Coil 7 (5.0L, power output to coil primary)"
+    type: ign
+  - pin: B88
+    function: "Ignition Coil 6 (5.0L, power output to coil primary)"
+    type: ign
+  - pin: B89
+    function: "Ignition Coil 5 (5.0L, power output to coil primary)"
+    type: ign
+  - pin: B90
+    function: "Ignition Coil 8 (5.0L, power output to coil primary)"
+    type: ign
+  - pin: B91
+    function: TSPC TRANSAXLE SOLENOID POWER CONTROL TCU (bypass for TCU molex)
+  - pin: B92
+    function: "Ignition Coil 4 (5.0L, power output to coil primary)"
+    type: ign
+  - pin: B93
+    function: "Ignition Coil 1 (5.0L, power output to coil primary)"
+    type: ign
+  - pin: B94
+    function: "Ignition Coil 3 (5.0L, power output to coil primary)"
+    type: ign
+  - pin: B95
+    function: "Ignition Coil 2 (5.0L, power output to coil primary)"
+    type: ign
+
+  - pin: B78
+    function: "Post-catalyst Oxygen Sensor 1 Heater"
+    type: ls
+
+  - pin: B79
+    function: "Pre-catalyst Oxygen Sensor 1 Heater"
+    type: ls
+
+info:
+  title: coyote
+  name: B
+  cid: b
+  directory: hellen/coyote
+  image:
+    file: ford-198-b.jpg
+  pins:
+    - pin: B1
+      x: 273
+      y: 345
+    - pin: B2
+      x: 347
+      y: 345
+    - pin: B3
+      x: 414
+      y: 345
+    - pin: B4
+      x: 485
+      y: 345
+    - pin: B5
+      x: 560
+      y: 345
+    - pin: B6
+      x: 627
+      y: 345
+    - pin: B7
+      x: 699
+      y: 345
+    - pin: B8
+      x: 770
+      y: 345
+    - pin: B9
+      x: 842
+      y: 345
+    - pin: B10
+      x: 909
+      y: 345
+    - pin: B11
+      x: 980
+      y: 345
+    - pin: B12
+      x: 1050
+      y: 345
+    - pin: B13
+      x: 1121
+      y: 345
+    - pin: B14
+      x: 1188
+      y: 345
+    - pin: B15
+      x: 1260
+      y: 345
+
+
+    - pin: B16
+      x: 273
+      y: 412
+    - pin: B17
+      x: 347
+      y: 412
+    - pin: B18
+      x: 414
+      y: 412
+    - pin: B19
+      x: 485
+      y: 412
+    - pin: B20
+      x: 560
+      y: 412
+    - pin: B21
+      x: 627
+      y: 412
+    - pin: B22
+      x: 699
+      y: 412
+    - pin: B23
+      x: 770
+      y: 412
+    - pin: B24
+      x: 842
+      y: 412
+    - pin: B25
+      x: 909
+      y: 412
+    - pin: B26
+      x: 980
+      y: 412
+    - pin: B27
+      x: 1050
+      y: 412
+    - pin: B28
+      x: 1121
+      y: 412
+    - pin: B29
+      x: 1188
+      y: 412
+    - pin: B30
+      x: 1260
+      y: 412
+
+
+    # auto-generated by PinLine.java from can-log-tools
+    # 31 45
+    # 273 1260
+    # 582
+    - pin: B31
+      x: 273
+      y: 582
+    - pin: B32
+      x: 343
+      y: 582
+    - pin: B33
+      x: 414
+      y: 582
+    - pin: B34
+      x: 484
+      y: 582
+    - pin: B35
+      x: 555
+      y: 582
+    - pin: B36
+      x: 625
+      y: 582
+    - pin: B37
+      x: 696
+      y: 582
+    - pin: B38
+      x: 766
+      y: 582
+    - pin: B39
+      x: 837
+      y: 582
+    - pin: B40
+      x: 907
+      y: 582
+
+    - pin: B41
+      x: 978
+      y: 582
+    - pin: B42
+      x: 1048
+      y: 582
+    - pin: B43
+      x: 1119
+      y: 582
+    - pin: B44
+      x: 1189
+      y: 582
+    - pin: B45
+      x: 1260
+      y: 582
+
+    # auto-generated by PinLine.java from can-log-tools
+    # 46 60
+    # 273 1260
+    # 750
+    - pin: B46
+      x: 273
+      y: 750
+    - pin: B47
+      x: 343
+      y: 750
+    - pin: B48
+      x: 414
+      y: 750
+    - pin: B49
+      x: 484
+      y: 750
+    - pin: B50
+      x: 555
+      y: 750
+
+    - pin: B51
+      x: 625
+      y: 750
+    - pin: B52
+      x: 696
+      y: 750
+    - pin: B53
+      x: 766
+      y: 750
+    - pin: B54
+      x: 837
+      y: 750
+    - pin: B55
+      x: 907
+      y: 750
+    - pin: B56
+      x: 978
+      y: 750
+    - pin: B57
+      x: 1048
+      y: 750
+    - pin: B58
+      x: 1119
+      y: 750
+    - pin: B59
+      x: 1189
+      y: 750
+    - pin: B60
+      x: 1260
+      y: 750
+
+    # auto-generated by PinLine.java from can-log-tools
+    # 61 75
+    # 273 1260
+    # 822
+    - pin: B61
+      x: 273
+      y: 822
+    - pin: B62
+      x: 343
+      y: 822
+    - pin: B63
+      x: 414
+      y: 822
+    - pin: B64
+      x: 484
+      y: 822
+    - pin: B65
+      x: 555
+      y: 822
+    - pin: B66
+      x: 625
+      y: 822
+    - pin: B67
+      x: 696
+      y: 822
+    - pin: B68
+      x: 766
+      y: 822
+    - pin: B69
+      x: 837
+      y: 822
+    - pin: B70
+      x: 907
+      y: 822
+
+    - pin: B71
+      x: 978
+      y: 822
+    - pin: B72
+      x: 1048
+      y: 822
+    - pin: B73
+      x: 1119
+      y: 822
+    - pin: B74
+      x: 1189
+      y: 822
+    - pin: B75
+      x: 1260
+      y: 822
+
+    - pin: B87
+      x: 1470
+      y: 670
+    - pin: B88
+      x: 1568
+      y: 670
+    - pin: B89
+      x: 1664
+      y: 670
+    - pin: B90
+      x: 1758
+      y: 670
+
+    - pin: B92
+      x: 1470
+      y: 825
+    - pin: B93
+      x: 1568
+      y: 825
+    - pin: B94
+      x: 1664
+      y: 825
+    - pin: B95
+      x: 1758
+      y: 825
+
+    - pin: B77
+      x: 1470
+      y: 345
+
+    - pin: B78
+      x: 1568
+      y: 345
+
+    - pin: B79
+      x: 1664
+      y: 345
+
+    - pin: B81
+      x: 1372
+      y: 497
+
+    - pin: B82
+      x: 1470
+      y: 497
+
+    - pin: B91
+      x: 1372
+      y: 825
